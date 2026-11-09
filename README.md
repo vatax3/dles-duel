@@ -1,7 +1,9 @@
 # Duel des dles
 
-Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidiens (Wordle, Globle, Angle, Minecraftle, Poople, Krillion… et 15 autres du catalogue) entre 2 à 4 joueurs.
+Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidiens (Wordle, Globle, Angle, Minecraftle, Poople, Krillion… et 15 autres du catalogue) entre potes, sans limite de joueurs.
 
+- **Joueurs gérés dans l'app** : chacun s'ajoute au premier passage (« Qui es-tu ? »), pas de mot de passe. Renommer, archiver, supprimer dans *Réglages*.
+- **Code d'accès commun facultatif** (`ACCESS_CODE`), demandé une fois par appareil.
 - **Saisie en un geste** : on colle les textes de partage, les scores se remplissent tout seuls.
 - **PWA installable** : sur Android, *Partager → Duel des dles* depuis le jeu et c'est enregistré.
 - **Raccourci iPhone** via un jeton personnel (`/api/text`).
@@ -15,7 +17,7 @@ Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidie
 Avec l'image construite automatiquement par GitHub Actions (amd64 et arm64) :
 
 ```bash
-cp .env.example .env      # puis édite PLAYERS (noms + PIN) et le reste
+cp .env.example .env      # ACCESS_CODE, NOTIFY_URL, PUBLIC_URL…
 docker compose pull && docker compose up -d
 ```
 
@@ -29,13 +31,14 @@ L'app répond sur `http://<ton-serveur>:3000`. Les données sont dans `./data` (
 
 | Variable | Rôle |
 |---|---|
-| `PLAYERS` | `id:Nom:PIN` séparés par des virgules, 2 à 4 joueurs. Garde `val` et `pips` comme ids pour importer la sauvegarde de la démo. |
+| `ACCESS_CODE` | Code commun demandé une fois par appareil. Vide = accès libre (déconseillé si exposé sur Internet). |
 | `TZ` | Fuseau utilisé pour « aujourd'hui » côté serveur (partage Android, raccourci iOS). |
 | `PUBLIC_URL` | URL publique, ajoutée aux notifications. |
 | `NOTIFY_URL` | ntfy (`https://ntfy.sh/mon-topic`), webhook Discord ou Slack. Vide = pas de notification. |
 | `NOTIFY_DELAY_SECONDS` | Délai avant envoi, pour regrouper les corrections (90 s par défaut). |
 | `COOKIE_SECURE` | `true` si servi en HTTPS sans en-tête `X-Forwarded-Proto`. |
 | `SECRET` | Facultatif : secret de signature (sinon généré dans `data/secret`). |
+| `PLAYERS` | Ancienne config `id:Nom,…` : crée ces joueurs au démarrage si la base n'en a aucun. |
 
 ## Derrière un reverse proxy (recommandé)
 
@@ -51,7 +54,7 @@ Avec Nginx, désactive le buffering pour le temps réel (SSE) sur `/api/events` 
 
 ## Saisie depuis le téléphone
 
-**Android** : ouvre l'app en HTTPS, menu → *Installer l'application*. À la fin d'un jeu, *Partager → Duel des dles* : le score est enregistré dans ta colonne pour aujourd'hui.
+**Android** : ouvre l'app en HTTPS, menu → *Installer l'application*. À la fin d'un jeu, *Partager → Duel des dles* : le score est enregistré à ton nom (le joueur choisi sur cet appareil) pour aujourd'hui.
 
 **iPhone** (Safari ne gère pas le partage vers une web app) : dans l'app **Raccourcis**, crée :
 
@@ -69,7 +72,7 @@ curl -X POST -H "Authorization: Bearer <jeton>" --data-binary "Wordle 1 602 4/6"
 
 ## Reprendre l'historique de la démo Claude
 
-Dans la démo : *Historique → Sauvegarde JSON*. Ici : *Réglages → Importer une sauvegarde…*. La liste des jeux est reprise aussi.
+Dans la démo : *Historique → Sauvegarde JSON*. Ici : *Réglages → Importer une sauvegarde…*. Les joueurs Val et Pips sont créés automatiquement et la liste des jeux est reprise.
 
 ## Sauvegarde et mise à jour
 
@@ -79,7 +82,7 @@ Dans la démo : *Historique → Sauvegarde JSON*. Ici : *Réglages → Importer 
 ## Développement sans Docker
 
 ```bash
-PLAYERS=val:Val:1234,pips:Pips:5678 node --watch server.js
+node --watch server.js
 ```
 
 ## Structure

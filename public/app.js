@@ -22,25 +22,31 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 const SVGNS = 'http://www.w3.org/2000/svg';
 const sv = (tag, attrs = {}) => { const e = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); return e; };
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch { } } };
 let toastT;
 function toast(msg, err = false) { const t = $('#toast'); t.textContent = msg; t.classList.toggle('err', err); t.classList.remove('hidden'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), 4000); }
 
+class Locked extends Error { }
 async function api(path, opts = {}) {
   const res = await fetch(path, { credentials: 'same-origin', ...opts, headers: { ...(opts.body && typeof opts.body === 'string' ? { 'Content-Type': 'application/json' } : {}), ...(opts.headers || {}) } });
   let data = null; try { data = await res.json(); } catch { }
-  if (res.status === 401 && path !== '/api/login') { showLogin(); throw new Error('Non connecté'); }
+  if (res.status === 401 && data?.locked) { showGate('code'); throw new Locked('Code requis'); }
   if (!res.ok) throw Object.assign(new Error(data?.error || `Erreur ${res.status}`), { status: res.status, data });
   return data;
 }
 
 // ================= État =================
-let me = null, PLAYERS = [], PIDS = [];
-const COLORS = ['var(--p1)', 'var(--p2)', 'var(--p3)', 'var(--p4)'];
-const color = id => COLORS[Math.max(0, PIDS.indexOf(id))];
-const nameOf = id => PLAYERS.find(p => p.id === id)?.name || id;
+let players = [], meId = store.get('dd_me'), accessCode = false;
 let scores = [], gameConfig = null, GAMES = [];
-let selDate = today(), dirty = false, loaded = false, period = '30';
+let selDate = today(), forId = null, period = '30', statGame = null;
+const drafts = {};   // saisies non enregistrées, par joueur
+let dirty = false;
 
+const playerById = id => players.find(p => p.id === id);
+const nameOf = id => playerById(id)?.name || id;
+const activePlayers = () => players.filter(p => !p.archived);
+const color = id => { const p = playerById(id); return p && p.slot < 8 ? `var(--c${p.slot + 1})` : 'var(--cx)'; };
+const dot = id => el('span', { class: 'dot', style: `background:${color(id)}` });
 const setGames = () => { GAMES = (gameConfig || DEFAULT_GAMES).map(resolveGame).filter(Boolean); };
 const activeGames = () => GAMES.filter(g => g.active);
 const docOf = (date, p) => scores.find(s => s.date === date && s.player === p);
@@ -48,41 +54,51 @@ const allDates = () => [...new Set(scores.map(s => s.date))].sort();
 const cache = new Map();
 function dayResult(date) {
   if (cache.has(date)) return cache.get(date);
-  const docs = {}; for (const p of PIDS) { const d = docOf(date, p); if (d) docs[p] = d; }
-  const r = computeDay(GAMES, PIDS, docs); cache.set(date, r); return r;
+  const docs = {}; for (const s of scores) if (s.date === date) docs[s.player] = s;
+  const ids = players.map(p => p.id).filter(id => docs[id]);
+  const r = computeDay(GAMES, ids, docs); r.ids = ids; cache.set(date, r); return r;
 }
 const isWin = (w, p) => Array.isArray(w) && w.includes(p);
-const dot = p => el('span', { class: 'dot', style: `background:${color(p)}` });
+// joueurs « habituels » : non archivés et ayant joué ces 14 derniers jours
+const regulars = () => { const from = shiftDate(today(), -14); const s = new Set(scores.filter(x => x.date >= from).map(x => x.player)); return activePlayers().filter(p => s.has(p.id)).map(p => p.id); };
 
-// ================= Connexion =================
-let loginPlayer = null;
-async function showLogin() {
-  $('#appView').classList.add('hidden'); $('#loginView').classList.remove('hidden');
-  try {
-    const { players } = await api('/api/players');
+// ================= Entrée : code puis « qui es-tu ? » =================
+function showGate(step) {
+  $('#appView').classList.add('hidden'); $('#gateView').classList.remove('hidden');
+  $('#codeStep').classList.toggle('hidden', step !== 'code');
+  $('#whoStep').classList.toggle('hidden', step !== 'who');
+  $('#gateStatus').textContent = '';
+  if (step === 'code') $('#code').focus();
+  if (step === 'who') {
     const box = $('#who'); box.innerHTML = '';
-    players.forEach((p, i) => box.append(el('button', { class: i === 0 && !loginPlayer ? 'on' : (loginPlayer === p.id ? 'on' : ''), onclick: e => { loginPlayer = p.id; box.querySelectorAll('button').forEach(b => b.classList.toggle('on', b === e.currentTarget)); $('#pin').focus(); } }, p.name)));
-    if (!loginPlayer) loginPlayer = players[0]?.id;
-  } catch { }
+    for (const p of activePlayers()) box.append(el('button', { class: 'chip', onclick: () => chooseMe(p.id) }, dot(p.id), p.name));
+    if (!activePlayers().length) box.append(el('div', { class: 'hint' }, 'Aucun joueur pour l\'instant : ajoute-toi ci-dessous.'));
+  }
 }
-async function doLogin() {
-  try {
-    await api('/api/login', { method: 'POST', body: JSON.stringify({ player: loginPlayer, pin: $('#pin').value }) });
-    $('#pin').value = ''; $('#loginStatus').textContent = '';
-    await boot();
-  } catch (e) { $('#loginStatus').textContent = e.message; $('#loginStatus').classList.add('err'); }
+function gateError(msg) { const s = $('#gateStatus'); s.textContent = msg; s.classList.add('err'); }
+async function unlock() {
+  try { await api('/api/unlock', { method: 'POST', body: JSON.stringify({ code: $('#code').value }) }); $('#code').value = ''; await boot(); }
+  catch (e) { if (!(e instanceof Locked)) gateError(e.message); }
 }
-$('#loginBtn').addEventListener('click', doLogin);
-$('#pin').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
-$('#logout').addEventListener('click', async () => { try { await api('/api/logout', { method: 'POST' }); } catch { } es?.close(); showLogin(); });
+$('#codeBtn').addEventListener('click', unlock);
+$('#code').addEventListener('keydown', e => { if (e.key === 'Enter') unlock(); });
+async function chooseMe(id) { meId = id; store.set('dd_me', id); forId = id; await enterApp(); }
+async function addSelf() {
+  const name = $('#newName').value.trim(); if (!name) return gateError('Donne ton prénom.');
+  try { const r = await api('/api/players', { method: 'POST', body: JSON.stringify({ name }) }); $('#newName').value = ''; await loadState(); await chooseMe(r.player.id); }
+  catch (e) { if (!(e instanceof Locked)) gateError(e.message); }
+}
+$('#newBtn').addEventListener('click', addSelf);
+$('#newName').addEventListener('keydown', e => { if (e.key === 'Enter') addSelf(); });
+$('#switchMe').addEventListener('click', () => { store.set('dd_me', null); meId = null; showGate('who'); });
+$('#lockBtn').addEventListener('click', async () => { try { await api('/api/lock', { method: 'POST' }); } catch { } es?.close(); showGate('code'); });
 
 // ================= Chargement & temps réel =================
 let es = null;
 async function loadState() {
   const s = await api('/api/state');
-  me = s.me; PLAYERS = s.players; PIDS = PLAYERS.map(p => p.id);
-  gameConfig = s.games; scores = s.scores.filter(x => PIDS.includes(x.player));
-  loaded = true;
+  players = s.players; gameConfig = s.games; scores = s.scores; accessCode = s.accessCode;
+  setGames();
 }
 function connectEvents() {
   es?.close();
@@ -94,22 +110,31 @@ function connectEvents() {
 }
 async function refresh() {
   try {
-    const keep = dirty ? snapshotForm() : null;
-    await loadState(); setGames(); buildForm(keep); renderAll();
-  } catch (e) { if (e.message !== 'Non connecté') showBanner('Connexion au serveur perdue, nouvel essai…'); }
+    if (dirty) drafts[forId] = readForm();
+    await loadState();
+    if (meId && !playerById(meId)) { store.set('dd_me', null); meId = null; return showGate('who'); }
+    if (!playerById(forId) || playerById(forId).archived) forId = meId;
+    buildForPicker(); buildForm(); renderAll();
+  } catch (e) { if (!(e instanceof Locked)) showBanner('Connexion au serveur perdue, nouvel essai…'); }
 }
 async function boot() {
-  try { await loadState(); } catch (e) { if (e.message !== 'Non connecté') showBanner('Serveur injoignable.'); return; }
-  $('#loginView').classList.add('hidden'); $('#appView').classList.remove('hidden');
-  $('#meName').textContent = me.name;
+  try { await loadState(); }
+  catch (e) { if (!(e instanceof Locked)) { showGate(null); gateError('Serveur injoignable.'); } return; }
+  if (!meId || !playerById(meId) || playerById(meId).archived) return showGate('who');
+  await enterApp();
+}
+async function enterApp() {
+  $('#gateView').classList.add('hidden'); $('#appView').classList.remove('hidden');
+  forId = meId;
+  $('#meName').textContent = nameOf(meId);
+  $('#lockBtn').classList.toggle('hidden', !accessCode);
   $('#apiUrl').textContent = location.origin + '/api/text';
-  api('/api/token').then(d => { $('#apiToken').textContent = 'Bearer ' + d.token; }).catch(() => { });
-  setGames(); buildPastes(); buildForm(); $('#date').value = selDate; renderAll();
+  api(`/api/token/${meId}`).then(d => { $('#apiToken').textContent = 'Bearer ' + d.token; }).catch(() => { });
+  buildForPicker(); buildForm(); $('#date').value = selDate; renderAll();
   connectEvents();
   await handleShareTarget();
 }
-// Au retour sur l'app (PWA restée ouverte), on resynchronise
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && me) refresh(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && meId && !$('#appView').classList.contains('hidden')) refresh(); });
 
 // Partage Android (Web Share Target) : l'app s'ouvre sur /?text=…
 async function handleShareTarget() {
@@ -118,64 +143,59 @@ async function handleShareTarget() {
   if (!text) return;
   history.replaceState(null, '', '/');
   try {
-    const r = await api('/api/text', { method: 'POST', body: JSON.stringify({ text, player: me.id }) });
-    toast(r.message);
-    await refresh();
+    const r = await api('/api/text', { method: 'POST', body: JSON.stringify({ text, player: meId }) });
+    toast(r.message); await refresh();
   } catch (e) {
     toast(e.message + ' Colle-le à la main.', true);
-    const ta = document.querySelector(`[data-paste="${me.id}"]`); if (ta) { ta.value = text; ta.dispatchEvent(new Event('input')); }
+    $('#paste').value = text; onPaste(text);
   }
 }
 
-// ================= Saisie =================
+// ================= Saisie (un joueur à la fois) =================
 let inputs = {};
-function buildPastes() {
-  const box = $('#pastes'); box.innerHTML = '';
-  box.style.gridTemplateColumns = PLAYERS.length > 2 ? 'repeat(auto-fit,minmax(200px,1fr))' : '';
-  const ordered = [me.id, ...PIDS.filter(p => p !== me.id)];
+function buildForPicker() {
+  const box = $('#forChips'); box.innerHTML = '';
+  box.append(el('span', { class: 'hint', style: 'margin:0 4px 0 0' }, 'Pour :'));
+  const ordered = [playerById(meId), ...activePlayers().filter(p => p.id !== meId)].filter(Boolean);
   for (const p of ordered) {
-    const ta = el('textarea', { 'data-paste': p, placeholder: "Colle tout d'un coup, ça se remplit tout seul" });
-    ta.addEventListener('input', () => onPaste(p, ta.value));
-    box.append(el('div', {}, el('label', {}, dot(p), `Partages de ${nameOf(p)}${p === me.id ? ' (toi)' : ''}`), ta));
+    const has = !!docOf(selDate, p.id), draft = !!drafts[p.id];
+    box.append(el('button', { class: 'chip' + (p.id === forId ? ' on' : ''), title: has ? 'Scores déjà saisis' : null, onclick: () => switchFor(p.id) },
+      dot(p.id), p.id === meId ? `${p.name} (toi)` : p.name, has ? ' ✓' : '', draft ? ' •' : ''));
   }
 }
-function snapshotForm() { const o = {}; for (const p of PIDS) o[p] = readForm(p); return o; }
-function buildForm(keep = null) {
-  const t = $('#entry'); t.innerHTML = '';
-  inputs = Object.fromEntries(PIDS.map(p => [p, {}]));
-  t.append(el('tr', {}, el('th', {}, 'Jeu'), ...PIDS.map(p => el('th', {}, dot(p), nameOf(p)))));
-  for (const g of activeGames()) {
-    const cells = PIDS.map(p => {
-      const n = el('input', { type: 'number', min: g.min, max: g.max, inputmode: 'numeric', placeholder: '–', 'aria-label': `${g.name} ${nameOf(p)}` });
-      const f = el('input', { type: 'checkbox' });
-      n.addEventListener('input', () => { dirty = true; n.classList.remove('auto'); if (n.value) f.checked = false; });
-      f.addEventListener('change', () => { dirty = true; if (f.checked) n.value = ''; n.disabled = f.checked; });
-      inputs[p][g.id] = { num: n, fail: f };
-      return el('td', {}, el('div', { class: 'cell' }, n, g.canFail ? el('label', { title: 'Raté' }, f, el('span', {}, 'Raté')) : null));
-    });
-    t.append(el('tr', {}, el('td', { class: 'gname' }, `${g.ic} `, g.url ? el('a', { href: g.url, target: '_blank', rel: 'noopener' }, g.name) : g.name, el('small', {}, g.sub)), ...cells));
-  }
-  if (!activeGames().length) t.append(el('tr', {}, el('td', { colspan: PIDS.length + 1, class: 'empty' }, 'Aucun jeu actif — va dans Réglages.')));
-  if (keep) { for (const p of PIDS) setInputs(p, keep[p]); dirty = true; } else fillForm();
+function switchFor(id) {
+  if (id === forId) return;
+  if (dirty) drafts[forId] = readForm();
+  forId = id; buildForPicker(); buildForm(); $('#paste').value = ''; setStatus('');
 }
-function setInputs(p, vals) {
+function buildForm() {
+  const box = $('#entry'); box.innerHTML = ''; inputs = {};
   for (const g of activeGames()) {
-    const inp = inputs[p]?.[g.id]; if (!inp) continue;
+    const n = el('input', { type: 'number', min: g.min, max: g.max, inputmode: 'numeric', placeholder: '–', 'aria-label': g.name });
+    const f = el('input', { type: 'checkbox' });
+    n.addEventListener('input', () => { dirty = true; n.classList.remove('auto'); if (n.value) f.checked = false; });
+    f.addEventListener('change', () => { dirty = true; if (f.checked) n.value = ''; n.disabled = f.checked; });
+    inputs[g.id] = { num: n, fail: f };
+    box.append(el('div', { class: 'erow' },
+      el('div', { class: 'gname' }, `${g.ic} `, g.url ? el('a', { href: g.url, target: '_blank', rel: 'noopener' }, g.name) : g.name, el('small', {}, g.sub)),
+      el('div', { class: 'cell' }, n, g.canFail ? el('label', { title: 'Raté' }, f, el('span', {}, 'Raté')) : null)));
+  }
+  if (!activeGames().length) box.append(el('div', { class: 'empty' }, 'Aucun jeu actif — va dans Réglages.'));
+  if (drafts[forId]) { setInputs(drafts[forId]); dirty = true; } else { setInputs(docOf(selDate, forId)); dirty = false; }
+}
+function setInputs(vals) {
+  for (const g of activeGames()) {
+    const inp = inputs[g.id]; if (!inp) continue;
     const v = vals ? vals[g.id] : null;
     inp.num.classList.remove('auto');
     inp.fail.checked = v === 'X'; inp.num.disabled = v === 'X';
     inp.num.value = (v == null || v === 'X') ? '' : v;
   }
 }
-function fillForm() {
-  for (const p of PIDS) setInputs(p, docOf(selDate, p));
-  document.querySelectorAll('[data-paste]').forEach(t => t.value = '');
-  dirty = false;
-}
-function readForm(p) {
+function readForm() {
   const out = {};
   for (const g of activeGames()) {
-    const inp = inputs[p]?.[g.id]; if (!inp) continue;
+    const inp = inputs[g.id]; if (!inp) continue;
     if (g.canFail && inp.fail.checked) { out[g.id] = 'X'; continue; }
     if (inp.num.value === '') { out[g.id] = null; continue; }
     const n = Math.round(Number(inp.num.value));
@@ -183,36 +203,46 @@ function readForm(p) {
   }
   return out;
 }
-function onPaste(p, text) {
+function onPaste(text) {
   const found = parseShare(text, activeGames());
   for (const [id, v] of Object.entries(found)) {
-    const inp = inputs[p][id]; if (!inp) continue;
+    const inp = inputs[id]; if (!inp) continue;
     if (v === 'X') { inp.fail.checked = true; inp.num.value = ''; inp.num.disabled = true; }
     else { inp.fail.checked = false; inp.num.disabled = false; inp.num.value = v; inp.num.classList.add('auto'); }
     dirty = true;
   }
   const names = Object.keys(found).map(id => GAMES.find(g => g.id === id).name);
-  setStatus(names.length ? `${nameOf(p)} : ${names.join(', ')} détecté — vérifie et enregistre.` : (text.trim() ? 'Rien reconnu, remplis à la main.' : ''));
+  setStatus(names.length ? `${nameOf(forId)} : ${names.join(', ')} détecté — vérifie et enregistre.` : (text.trim() ? 'Rien reconnu, remplis à la main.' : ''));
 }
+$('#paste').addEventListener('input', e => onPaste(e.target.value));
 function setStatus(msg, err = false, id = '#status') { const s = $(id); s.textContent = msg; s.classList.toggle('err', err); }
 
+async function savePlayer(pid, formVals) {
+  const prev = docOf(selDate, pid) || {};
+  const next = {}; for (const [k, v] of Object.entries(prev)) if (k !== 'date' && k !== 'player') next[k] = v;
+  Object.assign(next, formVals); // les jeux en pause gardent leur score
+  const changed = Object.keys({ ...prev, ...next }).some(k => k !== 'date' && k !== 'player' && (prev[k] ?? null) !== (next[k] ?? null));
+  if (changed) await api(`/api/scores/${selDate}/${pid}`, { method: 'PUT', body: JSON.stringify({ values: next }) });
+  return changed;
+}
 $('#save').addEventListener('click', async () => {
   const btn = $('#save'); btn.disabled = true; setStatus('Enregistrement…');
   try {
-    for (const p of PIDS) {
-      const prev = docOf(selDate, p) || {};
-      const next = {}; for (const [k, v] of Object.entries(prev)) if (k !== 'date' && k !== 'player') next[k] = v;
-      Object.assign(next, readForm(p)); // les jeux en pause gardent leur score
-      const changed = Object.keys({ ...prev, ...next }).some(k => k !== 'date' && k !== 'player' && (prev[k] ?? null) !== (next[k] ?? null));
-      if (!changed) continue;
-      await api(`/api/scores/${selDate}/${p}`, { method: 'PUT', body: JSON.stringify({ values: next }) });
-    }
-    dirty = false; setStatus('Enregistré ✓'); await refresh();
-  } catch (e) { setStatus(`Échec : ${e.message}`, true); }
+    if (dirty) drafts[forId] = readForm();
+    const who = [];
+    for (const [pid, vals] of Object.entries(drafts)) { if (await savePlayer(pid, vals)) who.push(nameOf(pid)); delete drafts[pid]; }
+    dirty = false; $('#paste').value = '';
+    setStatus(who.length ? `Enregistré ✓ (${who.join(', ')})` : 'Rien à enregistrer.');
+    await refresh();
+  } catch (e) { if (!(e instanceof Locked)) setStatus(`Échec : ${e.message}`, true); }
   finally { btn.disabled = false; }
 });
 
-function setDate(d) { selDate = d; $('#date').value = d; fillForm(); setStatus(''); renderDuel(); }
+function setDate(d) {
+  if (dirty || Object.keys(drafts).length) { for (const k of Object.keys(drafts)) delete drafts[k]; toast('Saisie non enregistrée abandonnée', true); }
+  selDate = d; $('#date').value = d; $('#paste').value = ''; setStatus('');
+  buildForPicker(); buildForm(); renderDuel();
+}
 $('#date').addEventListener('change', e => e.target.value && setDate(e.target.value));
 $('#prevDay').addEventListener('click', () => setDate(shiftDate(selDate, -1)));
 $('#nextDay').addEventListener('click', () => setDate(shiftDate(selDate, 1)));
@@ -228,42 +258,51 @@ document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click
 document.querySelectorAll('#period button').forEach(b => b.addEventListener('click', () => {
   period = b.dataset.p; document.querySelectorAll('#period button').forEach(x => x.classList.toggle('on', x === b)); renderStats();
 }));
+$('#gameSel').addEventListener('change', e => { statGame = e.target.value; renderStatGame(periodDates()); });
 
 // ================= Rendu : jour =================
 const fmtV = v => v == null || v === '' ? '–' : String(v);
-const winLabel = w => w === 'tie' ? 'égalité' : nameOf(w);
+function dayWinCounts(dates) {
+  const c = {}; for (const d of dates) { const w = dayResult(d).dayWinner; if (w && w !== 'tie') c[w] = (c[w] || 0) + 1; } return c;
+}
 function renderHead() {
   const box = $('#headScore'); box.innerHTML = '';
-  const c = Object.fromEntries(PIDS.map(p => [p, 0]));
-  for (const d of allDates()) { const w = dayResult(d).dayWinner; if (w && w !== 'tie') c[w]++; }
-  if (!Object.values(c).some(Boolean)) return;
-  PIDS.forEach(p => box.append(el('span', { class: 'pill' }, dot(p), `${nameOf(p)} ${c[p]}`)));
+  const c = dayWinCounts(allDates());
+  const top = Object.entries(c).sort((a, b) => b[1] - a[1]);
+  top.slice(0, 3).forEach(([p, n]) => box.append(el('span', { class: 'pill' }, dot(p), `${nameOf(p)} ${n}`)));
+  if (top.length > 3) box.append(el('span', { class: 'pill' }, `+${top.length - 3}`));
 }
 function renderDuel() {
   const box = $('#duel'); box.innerHTML = '';
   $('#duelTitle').textContent = selDate === today() ? "Le duel d'aujourd'hui" : `Le duel — ${fmtDate(selDate)}`;
   const r = dayResult(selDate);
-  if (!Object.keys(r.docs).length) { box.append(el('div', { class: 'empty' }, 'Aucun score ce jour-là.')); return; }
-  const big = el('div', { class: 'score-big' });
-  PIDS.forEach((p, i) => {
-    if (i) big.append(el('div', { class: 'vs' }, '–'));
-    big.append(el('div', { class: 'pl' }, el('div', { class: 'n' }, dot(p), nameOf(p)), el('div', { class: 'v' }, r.docs[p] ? r.wins[p] : '…')));
+  const waiting = (selDate === today() ? regulars() : []).filter(p => !r.docs[p]);
+  if (!r.ids.length) { box.append(el('div', { class: 'empty' }, 'Aucun score ce jour-là.' + (waiting.length ? ` En attente de ${waiting.map(nameOf).join(', ')}.` : ''))); return; }
+  // classement du jour
+  const order = [...r.ids].sort((a, b) => r.wins[b] - r.wins[a]);
+  const rank = el('div', { class: 'rank' });
+  let pos = 0, prev = null;
+  order.forEach((p, i) => {
+    if (r.wins[p] !== prev) { pos = i + 1; prev = r.wins[p]; }
+    const played = GAMES.filter(g => r.docs[p]?.[g.id] != null).length;
+    rank.append(el('div', { class: 'r' + (r.dayWinner === p ? ' first' : '') },
+      el('div', { class: 'pos' }, r.compared ? `${pos}.` : '·'),
+      el('div', {}, dot(p), el('b', {}, nameOf(p)), r.dayWinner === p ? ' 🏆' : '', el('div', { class: 'sub' }, `${played} jeu${played > 1 ? 'x' : ''} joué${played > 1 ? 's' : ''}`)),
+      el('div', { class: 'pts', title: 'Jeux gagnés' }, r.compared ? r.wins[p] : '–')));
   });
-  box.append(big);
-  const missing = PIDS.filter(p => !r.docs[p]);
-  const msg = missing.length ? el('span', { class: 'pill' }, `En attente de ${missing.map(nameOf).join(', ')}…`)
-    : r.dayWinner === 'tie' ? el('span', { class: 'pill' }, 'Égalité') : r.dayWinner ? el('span', { class: 'pill w' }, `🏆 ${nameOf(r.dayWinner)} gagne la journée`) : el('span', { class: 'pill' }, 'Aucun jeu en commun');
-  box.append(el('div', { style: 'text-align:center;margin-bottom:12px' }, msg));
+  box.append(rank);
+  const msg = r.ids.length < 2 ? 'Il faut au moins deux joueurs pour comparer.' : r.dayWinner === 'tie' ? 'Égalité en tête.' : !r.compared ? 'Aucun jeu en commun.' : null;
+  if (msg || waiting.length) box.append(el('div', { class: 'hint', style: 'margin:0 0 10px' }, [msg, waiting.length ? `En attente de ${waiting.map(nameOf).join(', ')}.` : null].filter(Boolean).join(' ')));
   const t = el('table');
-  t.append(el('tr', {}, el('th', {}, 'Jeu'), ...PIDS.map(p => el('th', {}, nameOf(p)))));
-  for (const g of GAMES.filter(g => g.active || PIDS.some(p => r.docs[p]?.[g.id] != null))) {
+  t.append(el('tr', {}, el('th', {}, 'Jeu'), ...r.ids.map(p => el('th', {}, nameOf(p)))));
+  for (const g of GAMES.filter(g => g.active || r.ids.some(p => r.docs[p]?.[g.id] != null))) {
     const w = r.perGame[g.id];
-    t.append(el('tr', {}, el('td', {}, `${g.ic} ${g.name}`), ...PIDS.map(p => {
+    t.append(el('tr', {}, el('td', {}, `${g.ic} ${g.name}`), ...r.ids.map(p => {
       const v = r.docs[p]?.[g.id];
       return el('td', { class: ['v', isWin(w, p) ? 'win' : '', v === 'X' ? 'x' : ''].join(' ') }, fmtV(v));
     })));
   }
-  box.append(t);
+  box.append(el('div', { class: 'scroll' }, t));
 }
 
 // ================= Rendu : historique =================
@@ -273,17 +312,17 @@ function renderHistory() {
   if (!dates.length) { box.append(el('div', { class: 'empty' }, 'Rien encore. Rentrez vos premiers scores !')); return; }
   const games = GAMES.filter(g => scores.some(s => s[g.id] != null));
   const t = el('table');
-  t.append(el('tr', {}, el('th', {}, 'Jour'), el('th', {}, 'Score'), ...games.map(g => el('th', { title: g.name }, g.ic)), el('th', {}, 'Vainqueur')));
+  t.append(el('tr', {}, el('th', {}, 'Jour'), el('th', {}, 'Joueurs'), ...games.map(g => el('th', { title: g.name }, g.ic)), el('th', {}, 'Vainqueur')));
   for (const d of dates) {
     const r = dayResult(d);
     t.append(el('tr', { class: 'clickrow', title: 'Ouvrir ce jour', onclick: () => { showTab('today'); setDate(d); scrollTo(0, 0); } },
       el('td', {}, fmtDate(d)),
-      el('td', { class: 'v' }, r.compared ? PIDS.map(p => r.docs[p] ? r.wins[p] : '·').join('–') : '–'),
+      el('td', { style: 'white-space:nowrap' }, r.ids.map(p => el('span', { class: 'dot', style: `background:${color(p)};margin:0 1px`, title: nameOf(p) }))),
       ...games.map(g => { const w = r.perGame[g.id]; return el('td', { style: 'font-size:12px;white-space:nowrap' }, Array.isArray(w) ? w.map(p => el('span', { class: 'dot', style: `background:${color(p)};margin:0 1px`, title: nameOf(p) })) : w === 'tie' ? '=' : ''); }),
       el('td', {}, r.dayWinner && r.dayWinner !== 'tie' ? el('span', { class: 'pill w' }, nameOf(r.dayWinner)) : el('span', { class: 'pill' }, r.dayWinner === 'tie' ? 'égalité' : 'incomplet'))));
   }
   box.append(t);
-  box.append(el('div', { class: 'hint' }, 'Pastille = qui a gagné le jeu, « = » = égalité. Clique sur un jour pour le corriger.'));
+  box.append(el('div', { class: 'hint' }, 'Joueurs = qui a posté. Pastille sous un jeu = qui l\'a gagné, « = » = égalité. Clique sur un jour pour le corriger.'));
 }
 
 // ================= Rendu : stats =================
@@ -292,64 +331,86 @@ function periodDates() {
   const from = shiftDate(today(), -(+period - 1)); return ds.filter(d => d >= from);
 }
 function renderStats() {
-  const top = $('#statsTop'), gbox = $('#statsGames'), cbox = $('#chart');
-  top.innerHTML = ''; gbox.innerHTML = ''; cbox.innerHTML = '';
+  const top = $('#statsTop'), cbox = $('#chart');
+  top.innerHTML = ''; cbox.innerHTML = '';
   const dates = periodDates();
   const duel = dates.filter(d => dayResult(d).compared > 0);
-  if (!duel.length) { top.append(el('div', { class: 'empty' }, 'Pas encore de journée en duel sur cette période.')); return; }
-  const dw = Object.fromEntries([...PIDS, 'tie'].map(k => [k, 0]));
-  duel.forEach(d => dw[dayResult(d).dayWinner]++);
+  if (!duel.length) { top.append(el('div', { class: 'empty' }, 'Pas encore de journée en duel sur cette période.')); $('#statsGame').innerHTML = ''; return; }
+  const st = {};
+  const S = p => st[p] ||= { days: 0, dayWins: 0, gameWins: 0, gamesCmp: 0 };
+  for (const d of duel) {
+    const r = dayResult(d);
+    for (const p of r.ids) { S(p).days++; if (r.dayWinner === p) S(p).dayWins++; }
+    for (const g of GAMES) { const w = r.perGame[g.id]; if (!w) continue; for (const p of r.ids) if (r.docs[p]?.[g.id] != null) S(p).gamesCmp++; if (Array.isArray(w)) w.forEach(p => S(p).gameWins++); }
+  }
+  // série en cours (journées gagnées d'affilée, tout l'historique)
   let sU = null, sN = 0;
   for (const d of allDates().reverse()) { const r = dayResult(d); if (!r.compared) continue; if (r.dayWinner === 'tie') break; if (!sU) { sU = r.dayWinner; sN = 1; } else if (r.dayWinner === sU) sN++; else break; }
 
-  const grid = el('div', { class: 'stats-grid' });
-  for (const p of PIDS) grid.append(el('div', { class: 'stat' }, el('div', { class: 'k' }, dot(p), `Journées — ${nameOf(p)}`), el('div', { class: 'val' }, dw[p]), el('div', { class: 'k' }, `${Math.round(100 * dw[p] / duel.length)} % des duels`)));
-  grid.append(el('div', { class: 'stat' }, el('div', { class: 'k' }, 'Égalités'), el('div', { class: 'val' }, dw.tie), el('div', { class: 'k' }, `sur ${duel.length} jours en duel`)));
-  grid.append(el('div', { class: 'stat' }, el('div', { class: 'k' }, 'Série en cours'), el('div', { class: 'val' }, sU ? sN : '–'), el('div', { class: 'k' }, sU ? `${nameOf(sU)} enchaîne` : 'aucune')));
-  top.append(grid);
-  top.append(el('div', { class: 'bar2' }, ...PIDS.map(p => dw[p] ? el('div', { style: `flex:${dw[p]};background:${color(p)}`, title: `${nameOf(p)} ${dw[p]}` }) : null),
-    dw.tie ? el('div', { style: `flex:${dw.tie};background:var(--line)`, title: `égalités ${dw.tie}` }) : null));
-
-  renderChart(cbox, duel);
-
+  const ids = Object.keys(st).sort((a, b) => st[b].dayWins - st[a].dayWins || st[b].gameWins - st[a].gameWins);
   const t = el('table');
-  t.append(el('tr', {}, el('th', {}, 'Jeu'), el('th', { title: 'Jours où il a été joué par au moins deux joueurs' }, 'Duels'),
-    ...PIDS.map(p => el('th', {}, nameOf(p))), el('th', {}, '='),
-    ...PIDS.map(p => el('th', {}, `Moy. ${nameOf(p)}`)), ...PIDS.map(p => el('th', {}, `Record ${nameOf(p)}`)), el('th', {}, 'Série')));
-  const dset = new Set(dates);
-  for (const g of GAMES.filter(g => scores.some(s => dset.has(s.date) && s[g.id] != null))) {
-    let duels = 0, ties = 0; const w = Object.fromEntries(PIDS.map(p => [p, 0]));
-    const vals = Object.fromEntries(PIDS.map(p => [p, []])), fails = Object.fromEntries(PIDS.map(p => [p, 0]));
-    for (const d of dates) {
-      const r = dayResult(d), x = r.perGame[g.id];
-      if (x) duels++; if (x === 'tie') ties++; if (Array.isArray(x)) x.forEach(p => w[p]++);
-      for (const p of PIDS) { const v = r.docs[p]?.[g.id]; if (v == null) continue; if (v === 'X') fails[p]++; vals[p].push(v === 'X' ? (g.fail ?? g.max) : Number(v)); }
-    }
-    let gs = null, gn = 0;
-    for (const d of allDates().reverse()) { const x = dayResult(d).perGame[g.id]; if (!x) continue; if (x === 'tie' || x.length > 1) break; if (!gs) { gs = x[0]; gn = 1; } else if (x[0] === gs) gn++; else break; }
-    const avg = p => { const a = vals[p]; if (!a.length) return '–'; const m = a.reduce((s, v) => s + v, 0) / a.length; return (!g.lower ? Math.round(m).toLocaleString('fr-FR') : m.toFixed(2)) + (fails[p] ? ` (${fails[p]}✗)` : ''); };
-    const rec = p => { const a = vals[p]; if (!a.length) return '–'; const b = g.lower ? Math.min(...a) : Math.max(...a); return g.canFail && g.lower && b === g.fail ? 'X' : b.toLocaleString('fr-FR'); };
-    const mx = Math.max(...PIDS.map(p => w[p])), lead = PIDS.filter(p => w[p] === mx);
-    t.append(el('tr', {}, el('td', {}, `${g.ic} ${g.name}`, g.active ? null : el('span', { class: 'pill', style: 'margin-left:6px' }, 'pause')),
-      el('td', { class: 'v' }, duels),
-      ...PIDS.map(p => el('td', { class: 'v' + (mx > 0 && lead.length === 1 && lead[0] === p ? ' win' : '') }, w[p])),
-      el('td', { class: 'v' }, ties),
-      ...PIDS.map(p => el('td', { class: 'v' }, avg(p))), ...PIDS.map(p => el('td', { class: 'v' }, rec(p))),
-      el('td', {}, gs ? el('span', {}, dot(gs), gn) : '–')));
-  }
-  gbox.append(t);
-  gbox.append(el('div', { class: 'hint' }, 'Victoires et égalités : seulement les jours où le jeu a été joué par au moins deux joueurs. Moyennes : un raté compte comme le pire score.'));
-}
+  t.append(el('tr', {}, el('th', {}, '#'), el('th', {}, 'Joueur'), el('th', { title: 'Journées gagnées' }, 'Journées'), el('th', { title: 'Part des journées jouées qui ont été gagnées' }, '% gagnées'),
+    el('th', { title: 'Jours où le joueur a posté' }, 'Jours joués'), el('th', { title: 'Jeux gagnés / jeux comparés' }, 'Jeux gagnés')));
+  ids.forEach((p, i) => t.append(el('tr', {},
+    el('td', { class: 'v' }, i + 1), el('td', {}, dot(p), nameOf(p), playerById(p)?.archived ? el('span', { class: 'pill', style: 'margin-left:6px' }, 'archivé') : null),
+    el('td', { class: 'v' + (i === 0 && st[p].dayWins > (st[ids[1]]?.dayWins ?? -1) ? ' win' : '') }, st[p].dayWins),
+    el('td', { class: 'v' }, `${Math.round(100 * st[p].dayWins / st[p].days)} %`),
+    el('td', { class: 'v' }, st[p].days),
+    el('td', { class: 'v' }, `${st[p].gameWins} / ${st[p].gamesCmp}`))));
+  top.append(el('div', { class: 'scroll' }, t));
+  const ties = duel.filter(d => dayResult(d).dayWinner === 'tie').length;
+  top.append(el('div', { class: 'hint' }, `${duel.length} jours en duel sur la période${ties ? `, dont ${ties} avec égalité en tête` : ''}. Série en cours : ${sU ? `${nameOf(sU)}, ${sN} journée${sN > 1 ? 's' : ''} d'affilée` : 'aucune'}.`));
 
-function renderChart(box, duel) {
-  box.append(el('div', { class: 'legend' }, ...PIDS.map(p => el('span', {}, dot(p), nameOf(p)))));
-  const cum = Object.fromEntries(PIDS.map(p => [p, []])); const run = Object.fromEntries(PIDS.map(p => [p, 0]));
-  duel.forEach(d => { const w = dayResult(d).dayWinner; if (w && w !== 'tie') run[w]++; PIDS.forEach(p => cum[p].push(run[p])); });
-  const W = 640, H = 230, L = 34, R = 64, T = 20, B = 26;
-  const n = duel.length, yMax = Math.max(1, ...PIDS.map(p => run[p]));
+  renderChart(cbox, duel, ids.slice(0, 8));
+  if (ids.length > 8) cbox.append(el('div', { class: 'hint' }, `Graphique limité aux 8 premiers du classement.`));
+
+  // sélecteur de jeu
+  const dset = new Set(dates);
+  const games = GAMES.filter(g => scores.some(s => dset.has(s.date) && s[g.id] != null));
+  const sel = $('#gameSel'); sel.innerHTML = '';
+  for (const g of games) sel.append(el('option', { value: g.id }, `${g.ic} ${g.name}`));
+  if (!games.some(g => g.id === statGame)) statGame = games[0]?.id || null;
+  sel.value = statGame || '';
+  renderStatGame(dates);
+}
+function renderStatGame(dates) {
+  const box = $('#statsGame'); box.innerHTML = '';
+  const g = GAMES.find(x => x.id === statGame); if (!g) return;
+  const st = {};
+  for (const d of dates) {
+    const r = dayResult(d), w = r.perGame[g.id];
+    for (const p of r.ids) {
+      const v = r.docs[p]?.[g.id]; if (v == null) continue;
+      const s = st[p] ||= { played: 0, duels: 0, wins: 0, fails: 0, vals: [] };
+      s.played++; if (v === 'X') s.fails++; s.vals.push(v === 'X' ? (g.fail ?? g.max) : Number(v));
+      if (w) s.duels++; if (isWin(w, p)) s.wins++;
+    }
+  }
+  let streakU = null, streakN = 0;
+  for (const d of allDates().reverse()) { const x = dayResult(d).perGame[g.id]; if (!x) continue; if (x === 'tie' || x.length > 1) break; if (!streakU) { streakU = x[0]; streakN = 1; } else if (x[0] === streakU) streakN++; else break; }
+  const ids = Object.keys(st).sort((a, b) => st[b].wins - st[a].wins || (g.lower ? 1 : -1) * (avgOf(st[a]) - avgOf(st[b])));
+  const fmtAvg = s => { const m = avgOf(s); return !g.lower ? Math.round(m).toLocaleString('fr-FR') : m.toFixed(2); };
+  const fmtRec = s => { const b = g.lower ? Math.min(...s.vals) : Math.max(...s.vals); return g.canFail && g.lower && b === g.fail ? 'X' : b.toLocaleString('fr-FR'); };
+  const t = el('table');
+  t.append(el('tr', {}, el('th', {}, 'Joueur'), el('th', {}, 'Parties'), el('th', { title: 'Victoires / parties comparées' }, 'Victoires'), el('th', {}, 'Moyenne'), el('th', {}, 'Record'), el('th', {}, 'Ratés')));
+  ids.forEach((p, i) => { const s = st[p]; t.append(el('tr', {},
+    el('td', {}, dot(p), nameOf(p), streakU === p && streakN > 1 ? el('span', { class: 'pill', style: 'margin-left:6px' }, `série ${streakN}`) : null),
+    el('td', { class: 'v' }, s.played), el('td', { class: 'v' + (i === 0 && s.wins > 0 ? ' win' : '') }, `${s.wins} / ${s.duels}`),
+    el('td', { class: 'v' }, fmtAvg(s)), el('td', { class: 'v' }, fmtRec(s)), el('td', { class: 'v' }, g.canFail ? s.fails : '–'))); });
+  box.append(t);
+  box.append(el('div', { class: 'hint' }, `${g.sub}${g.lower ? ', plus bas = mieux' : ', plus haut = mieux'}. Moyenne : un raté compte comme le pire score.`));
+}
+const avgOf = s => s.vals.reduce((a, b) => a + b, 0) / s.vals.length;
+
+function renderChart(box, duel, ids) {
+  box.append(el('div', { class: 'legend', style: 'flex-wrap:wrap' }, ...ids.map(p => el('span', {}, dot(p), nameOf(p)))));
+  const cum = Object.fromEntries(ids.map(p => [p, []])); const run = Object.fromEntries(ids.map(p => [p, 0]));
+  duel.forEach(d => { const w = dayResult(d).dayWinner; if (w in run) run[w]++; ids.forEach(p => cum[p].push(run[p])); });
+  const W = 640, H = 240, L = 34, R = 92, T = 20, B = 26;
+  const n = duel.length, yMax = Math.max(1, ...ids.map(p => run[p]));
   const x = i => n === 1 ? L + (W - L - R) / 2 : L + i * (W - L - R) / (n - 1);
   const y = v => T + (H - T - B) * (1 - v / yMax);
-  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Cumul des journées gagnées : ' + PIDS.map(p => `${nameOf(p)} ${run[p]}`).join(', ') });
+  const svg = sv('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Cumul des journées gagnées : ' + ids.map(p => `${nameOf(p)} ${run[p]}`).join(', ') });
   const step = Math.max(1, Math.ceil(yMax / 4));
   for (let v = 0; v <= yMax; v += step) {
     svg.append(sv('line', { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: 'var(--grid)', 'stroke-width': 1 }));
@@ -360,16 +421,16 @@ function renderChart(box, duel) {
     const i = ticks === 1 ? 0 : Math.round(k * (n - 1) / (ticks - 1));
     const tx = sv('text', { x: x(i), y: H - 6, 'text-anchor': 'middle', fill: 'var(--muted)', 'font-size': 11 }); tx.textContent = fmtShort(duel[i]); svg.append(tx);
   }
-  // étiquettes de fin, décalées si elles se chevauchent
-  const ends = PIDS.map(p => ({ p, v: cum[p][n - 1], yy: y(cum[p][n - 1]) })).sort((a, b) => a.yy - b.yy);
-  for (let i = 1; i < ends.length; i++) if (ends[i].yy - ends[i - 1].yy < 14) ends[i].yy = ends[i - 1].yy + 14;
-  for (const p of PIDS) {
+  for (const p of ids) {
     if (n > 1) svg.append(sv('polyline', { points: cum[p].map((v, i) => `${x(i)},${y(v)}`).join(' '), fill: 'none', stroke: color(p), 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     svg.append(sv('circle', { cx: x(n - 1), cy: y(cum[p][n - 1]), r: 4, fill: color(p), stroke: 'var(--panel)', 'stroke-width': 2 }));
   }
+  // étiquettes de fin (4 max pour rester lisible), décalées si elles se chevauchent
+  const ends = ids.slice(0, 4).map(p => ({ p, v: cum[p][n - 1], yy: y(cum[p][n - 1]) })).sort((a, b) => a.yy - b.yy);
+  for (let i = 1; i < ends.length; i++) if (ends[i].yy - ends[i - 1].yy < 14) ends[i].yy = ends[i - 1].yy + 14;
   for (const e of ends) { const lb = sv('text', { x: x(n - 1) + 10, y: e.yy + 4, fill: 'var(--text)', 'font-size': 12 }); lb.textContent = `${nameOf(e.p)} ${e.v}`; svg.append(lb); }
   const cross = sv('line', { y1: T, y2: H - B, stroke: 'var(--muted)', 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' });
-  const hv = PIDS.map(p => sv('circle', { r: 4, fill: color(p), stroke: 'var(--panel)', 'stroke-width': 2, visibility: 'hidden' }));
+  const hv = ids.map(p => sv('circle', { r: 4, fill: color(p), stroke: 'var(--panel)', 'stroke-width': 2, visibility: 'hidden' }));
   svg.append(cross, ...hv);
   const hit = sv('rect', { x: L, y: T, width: W - L - R, height: H - T - B, fill: 'transparent' });
   svg.append(hit);
@@ -379,17 +440,48 @@ function renderChart(box, duel) {
     const rect = svg.getBoundingClientRect(); const sx = (evt.clientX - rect.left) * W / rect.width;
     const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((sx - L) / ((W - L - R) / (n - 1)))));
     cross.setAttribute('x1', x(i)); cross.setAttribute('x2', x(i)); cross.setAttribute('visibility', 'visible');
-    PIDS.forEach((p, k) => { hv[k].setAttribute('cx', x(i)); hv[k].setAttribute('cy', y(cum[p][i])); hv[k].setAttribute('visibility', 'visible'); });
+    ids.forEach((p, k) => { hv[k].setAttribute('cx', x(i)); hv[k].setAttribute('cy', y(cum[p][i])); hv[k].setAttribute('visibility', 'visible'); });
     const r = dayResult(duel[i]);
     tip.innerHTML = '';
-    tip.append(el('div', { style: 'color:var(--muted)' }, fmtDate(duel[i]), ` · ${PIDS.map(p => r.docs[p] ? r.wins[p] : '·').join('–')}`),
-      ...PIDS.map(p => el('div', {}, dot(p), `${nameOf(p)} `, el('b', {}, cum[p][i]))));
+    tip.append(el('div', { style: 'color:var(--muted)' }, fmtDate(duel[i]), r.dayWinner && r.dayWinner !== 'tie' ? ` · 🏆 ${nameOf(r.dayWinner)}` : ' · égalité'),
+      ...[...ids].sort((a, b) => cum[b][i] - cum[a][i]).map(p => el('div', {}, dot(p), `${nameOf(p)} `, el('b', {}, cum[p][i]))));
     tip.style.display = 'block';
     const px = x(i) * rect.width / W; tip.style.left = Math.min(rect.width - tip.offsetWidth, Math.max(0, px - tip.offsetWidth / 2)) + 'px'; tip.style.top = '28px';
   };
   hit.addEventListener('mousemove', show); hit.addEventListener('touchstart', e => show(e.touches[0]), { passive: true });
   hit.addEventListener('mouseleave', () => { tip.style.display = 'none'; cross.setAttribute('visibility', 'hidden'); hv.forEach(c => c.setAttribute('visibility', 'hidden')); });
 }
+
+// ================= Réglages : joueurs =================
+function renderPlayers() {
+  const list = $('#plist'); list.innerHTML = '';
+  for (const p of players) {
+    const nScores = scores.filter(s => s.player === p.id).length;
+    const nameBox = el('div', {}, el('b', {}, p.name), p.id === meId ? ' (toi)' : '', el('small', {}, `${nScores} jour${nScores > 1 ? 's' : ''} de scores${p.archived ? ' · archivé' : ''}`));
+    const rename = () => {
+      const inp = el('input', { value: p.name, maxlength: 24, style: 'width:100%' });
+      const ok = async () => { try { await api(`/api/players/${p.id}`, { method: 'PATCH', body: JSON.stringify({ name: inp.value }) }); await refresh(); } catch (e) { if (!(e instanceof Locked)) setStatus(e.message, true, '#pStatus'); } };
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') ok(); if (e.key === 'Escape') renderPlayers(); });
+      nameBox.replaceWith(el('div', { class: 'row', style: 'flex-wrap:nowrap' }, inp, el('button', { class: 'sm primary', onclick: ok }, 'OK')));
+      inp.focus(); inp.select();
+    };
+    list.append(el('div', { class: 'gitem' + (p.archived ? ' off' : '') },
+      el('div', { class: 'ic' }, dot(p.id)), nameBox,
+      el('div', { class: 'acts' },
+        el('button', { class: 'sm', onclick: rename }, 'Renommer'),
+        p.id !== meId ? el('button', { class: 'sm', onclick: () => patchPlayer(p.id, { archived: !p.archived }) }, p.archived ? 'Réactiver' : 'Archiver') : null,
+        !nScores && p.id !== meId ? el('button', { class: 'sm', title: 'Supprimer', 'aria-label': `Supprimer ${p.name}`, onclick: () => deletePlayer(p.id) }, '✕') : null)));
+  }
+}
+async function patchPlayer(id, body) { try { await api(`/api/players/${id}`, { method: 'PATCH', body: JSON.stringify(body) }); await refresh(); } catch (e) { if (!(e instanceof Locked)) setStatus(e.message, true, '#pStatus'); } }
+async function deletePlayer(id) { try { await api(`/api/players/${id}`, { method: 'DELETE' }); await refresh(); } catch (e) { if (!(e instanceof Locked)) setStatus(e.message, true, '#pStatus'); } }
+async function addPlayer() {
+  const name = $('#addName').value.trim(); if (!name) return setStatus('Donne un nom.', true, '#pStatus');
+  try { await api('/api/players', { method: 'POST', body: JSON.stringify({ name }) }); $('#addName').value = ''; setStatus(`${name} ajouté ✓`, false, '#pStatus'); await refresh(); }
+  catch (e) { if (!(e instanceof Locked)) setStatus(e.message, true, '#pStatus'); }
+}
+$('#addBtn').addEventListener('click', addPlayer);
+$('#addName').addEventListener('keydown', e => { if (e.key === 'Enter') addPlayer(); });
 
 // ================= Réglages : jeux =================
 function renderGamesTab() {
@@ -416,8 +508,8 @@ function renderGamesTab() {
 }
 let cfgQueue = Promise.resolve();
 function saveConfig(next) {
-  const keep = dirty ? snapshotForm() : null;
-  gameConfig = next; setGames(); buildForm(keep); renderAll();
+  if (dirty) drafts[forId] = readForm();
+  gameConfig = next; setGames(); buildForm(); renderAll();
   cfgQueue = cfgQueue.then(() => api('/api/config', { method: 'PUT', body: JSON.stringify({ games: next }) }))
     .catch(e => toast(`Liste des jeux non enregistrée : ${e.message}`, true));
 }
@@ -445,7 +537,7 @@ function toCsv() {
   const lines = [['date', 'joueur', ...games.map(g => g.name), 'jeux_gagnes', 'vainqueur_du_jour'].join(';')];
   for (const d of allDates()) {
     const r = dayResult(d);
-    for (const p of PIDS) { const doc = r.docs[p]; if (!doc) continue; lines.push([d, nameOf(p), ...games.map(g => doc[g.id] ?? ''), r.wins[p], r.dayWinner ? winLabel(r.dayWinner) : ''].join(';')); }
+    for (const p of r.ids) lines.push([d, nameOf(p), ...games.map(g => r.docs[p][g.id] ?? ''), r.wins[p], r.dayWinner === 'tie' ? 'égalité' : r.dayWinner ? nameOf(r.dayWinner) : ''].join(';'));
   }
   return lines.join('\n');
 }
@@ -457,8 +549,8 @@ $('#importFile').addEventListener('change', async e => {
   try {
     const data = JSON.parse(await f.text());
     const r = await api('/api/import', { method: 'POST', body: JSON.stringify(data) });
-    setStatus(`${r.imported} fiches importées ✓`, false, '#ioStatus'); await refresh();
-  } catch (err) { setStatus(`Import impossible : ${err.message}`, true, '#ioStatus'); }
+    setStatus(`${r.imported} fiches importées ✓${r.createdPlayers.length ? ` · joueurs créés : ${r.createdPlayers.join(', ')}` : ''}`, false, '#ioStatus'); await refresh();
+  } catch (err) { if (!(err instanceof Locked)) setStatus(`Import impossible : ${err.message}`, true, '#ioStatus'); }
   e.target.value = '';
 });
 
@@ -472,7 +564,8 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').cat
 function showBanner(msg) { const b = $('#banner'); b.textContent = msg; b.classList.toggle('hidden', !msg); }
 function renderAll() {
   cache.clear(); showBanner('');
-  renderHead(); renderDuel(); renderHistory(); renderGamesTab();
+  $('#meName').textContent = nameOf(meId);
+  renderHead(); renderDuel(); renderHistory(); renderPlayers(); renderGamesTab();
   if (!$('#tab-stats').classList.contains('hidden')) renderStats();
 }
 
