@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Duel des dles</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}</style>
+</head>
+<body>
+<!-- CONNEXION -->
+<div id="loginView" class="wrap hidden">
+  <div class="login card">
+    <h1>Duel des <span style="color:var(--accent)">dles</span></h1>
+    <div class="hint">Qui es-tu ?</div>
+    <div class="who" id="who"></div>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="PIN" maxlength="12">
+    <div class="status" id="loginStatus" style="margin-top:10px"></div>
+    <button class="primary" id="loginBtn" style="width:100%;margin-top:10px">Entrer</button>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="appView" class="wrap hidden">
+  <header>
+    <h1>Duel des <span>dles</span></h1>
+    <div class="row" id="headScore"></div>
+  </header>
+
+  <div id="banner" class="banner hidden"></div>
+
+  <div class="tabs">
+    <button data-tab="today" class="on">Le jour</button>
+    <button data-tab="history">Historique</button>
+    <button data-tab="stats">Stats</button>
+    <button data-tab="settings">Réglages</button>
+  </div>
+
+  <!-- JOUR -->
+  <section id="tab-today">
+    <div class="card">
+      <div class="row between">
+        <h2 style="margin:0">Scores du jour</h2>
+        <div class="row">
+          <button id="prevDay" title="Jour précédent" aria-label="Jour précédent">‹</button>
+          <input type="date" id="date">
+          <button id="nextDay" title="Jour suivant" aria-label="Jour suivant">›</button>
+          <button id="todayBtn" class="sm ghost">Aujourd'hui</button>
+        </div>
+      </div>
+      <div class="pastes" id="pastes"></div>
+      <div class="scroll"><table id="entry" style="margin-top:12px"></table></div>
+      <div class="row between" style="margin-top:12px">
+        <div class="status" id="status"></div>
+        <button class="primary" id="save">Enregistrer</button>
+      </div>
+      <div class="hint">Vide = pas joué. « Raté » = pas trouvé (pire score). Un jeu ne compte que s'il a été joué par au moins deux joueurs.</div>
+    </div>
+    <div class="card">
+      <h2 id="duelTitle">Le duel</h2>
+      <div id="duel"></div>
+    </div>
+  </section>
+
+  <!-- HISTORIQUE -->
+  <section id="tab-history" class="hidden">
+    <div class="card">
+      <div class="row between" style="margin-bottom:10px">
+        <h2 style="margin:0">Tous les jours</h2>
+        <button class="sm" id="copyCsv">Copier en CSV</button>
+      </div>
+      <div class="scroll" id="history"></div>
+    </div>
+  </section>
+
+  <!-- STATS -->
+  <section id="tab-stats" class="hidden">
+    <div class="row between" style="margin-bottom:12px">
+      <div class="seg" id="period">
+        <button data-p="7">7 jours</button>
+        <button data-p="30" class="on">30 jours</button>
+        <button data-p="all">Tout</button>
+      </div>
+    </div>
+    <div class="card"><h2>Bilan</h2><div id="statsTop"></div></div>
+    <div class="card"><h2>Journées gagnées (cumul)</h2><div id="chart" class="chart"></div></div>
+    <div class="card"><h2>Par jeu</h2><div class="scroll" id="statsGames"></div></div>
+  </section>
+
+  <!-- RÉGLAGES -->
+  <section id="tab-settings" class="hidden">
+    <div class="card">
+      <h2>Vos jeux</h2>
+      <div class="glist" id="glist"></div>
+      <div class="hint">Mettre un jeu en pause le retire de la saisie sans effacer ses scores ni ses stats.</div>
+    </div>
+    <div class="card">
+      <h2>Catalogue</h2>
+      <div class="catalog" id="catalog"></div>
+    </div>
+    <div class="card">
+      <h2>Ajouter un jeu perso</h2>
+      <div class="form">
+        <label>Nom<input id="cName" maxlength="30" placeholder="ex : Spotle"></label>
+        <label>Emoji<input id="cIc" maxlength="4" placeholder="🎵"></label>
+        <label>Lien<input id="cUrl" placeholder="https://…"></label>
+        <label>Mot-clé dans le partage<input id="cKw" placeholder="ex : Spotle"></label>
+        <label>Type de score
+          <select id="cKind">
+            <option value="fraction">Essais « 3/10 »</option>
+            <option value="number">Nombre (essais, points…)</option>
+          </select>
+        </label>
+        <label>Score max<input id="cMax" type="number" min="1" value="10"></label>
+        <label class="chk"><input type="checkbox" id="cLower" checked> Plus bas = mieux</label>
+        <label class="chk"><input type="checkbox" id="cFail" checked> On peut rater</label>
+      </div>
+      <div class="row between" style="margin-top:12px">
+        <div class="status" id="cStatus"></div>
+        <button class="primary" id="cAdd">Ajouter</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Saisie rapide depuis le téléphone</h2>
+      <div style="font-size:14px">
+        <b>Android :</b> installe l'app (menu du navigateur → « Installer » / « Ajouter à l'écran d'accueil »<span id="installWrap" class="hidden"> ou <button class="sm" id="installBtn">Installer maintenant</button></span>).
+        Ensuite, à la fin d'un jeu : <i>Partager → Duel des dles</i>, c'est enregistré dans ta colonne.
+      </div>
+      <div style="font-size:14px;margin-top:12px"><b>iPhone :</b> crée un raccourci dans l'app Raccourcis :
+        <ol class="steps">
+          <li>Action <i>Obtenir le presse-papiers</i>.</li>
+          <li>Action <i>Obtenir le contenu de l'URL</i> : URL <span class="code" id="apiUrl"></span>, méthode <b>POST</b>, en-tête <b>Authorization</b> = <span class="code" id="apiToken">…</span>, corps <b>Fichier</b> = <i>Presse-papiers</i>.</li>
+          <li>Action <i>Afficher la notification</i> avec le résultat.</li>
+        </ol>
+        <div class="hint">Après un jeu : « Copier le résultat », puis lance le raccourci (ou ajoute-le au partage). Ce jeton vaut ton PIN : ne le partage pas.</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Sauvegarde</h2>
+      <div class="row">
+        <a href="/api/export" download><button class="sm">Télécharger la sauvegarde JSON</button></a>
+        <label class="sm" style="cursor:pointer"><input type="file" id="importFile" accept=".json,application/json" class="hidden"><span class="pill" style="padding:5px 10px">Importer une sauvegarde…</span></label>
+      </div>
+      <div class="status" id="ioStatus" style="margin-top:8px"></div>
+      <div class="hint">L'import accepte la sauvegarde de la démo Claude ou d'ici. Les scores importés remplacent ceux du même jour et du même joueur.</div>
+    </div>
+    <div class="card">
+      <div class="row between">
+        <div style="font-size:14px">Connecté en tant que <b id="meName"></b> · <span class="live" id="live" title="Temps réel"></span> <span id="liveTxt" class="hint" style="margin:0"></span></div>
+        <button class="sm" id="logout">Se déconnecter</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+<script type="module" src="/app.js"></script>
+</body>
+</html>

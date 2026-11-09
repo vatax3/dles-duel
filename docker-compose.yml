@@ -1,0 +1,11 @@
+services:
+  duel-dles:
+    image: ghcr.io/vatax3/dles-duel:latest   # image construite par GitHub Actions (amd64 + arm64)
+    build: .                                  # ou construite en local : docker compose up -d --build
+    container_name: duel-dles
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "3000:3000"          # à retirer si tu passes uniquement par ton reverse proxy
+    volumes:
+      - ./data:/data         # base SQLite + secret de session : c'est ça qu'il faut sauvegarder
