@@ -188,22 +188,40 @@ async function readBody(req, limit = 5e6) {
   return Buffer.concat(chunks).toString('utf8');
 }
 async function readJson(req, limit) { const t = await readBody(req, limit); try { return t ? JSON.parse(t) : {}; } catch { throw Object.assign(new Error('JSON invalide'), { status: 400 }); } }
-function serveStatic(req, res, urlPath) {
-  let p = decodeURIComponent(urlPath); if (p === '/' || p === '') p = '/index.html';
-  const file = path.normalize(path.join(PUBLIC, p));
-  if (!file.startsWith(PUBLIC + path.sep)) return send(res, 403, 'Interdit');
-  fs.readFile(file, (err, data) => {
-    if (err) return fs.readFile(path.join(PUBLIC, 'index.html'), (e2, html) => e2 ? send(res, 404, 'Introuvable') : send(res, 200, html, { 'Content-Type': MIME['.html'], 'Cache-Control': 'no-cache' }));
-    const ext = path.extname(file);
-    send(res, 200, data, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': ext === '.png' || ext === '.svg' ? 'public, max-age=86400' : 'no-cache' });
-  });
+// Fichiers versionnés : index.html et app.js pointent vers ?v=<hash> pour qu'un navigateur
+// ne puisse jamais mélanger une ancienne et une nouvelle version après une mise à jour.
+const VERSION = crypto.createHash('sha1').update(fs.readdirSync(PUBLIC).sort().map(f => fs.readFileSync(path.join(PUBLIC, f))).reduce((a, b) => Buffer.concat([a, b]), Buffer.alloc(0))).digest('hex').slice(0, 10);
+const REWRITE = {
+  '/index.html': s => s.replace(/(href|src)="\/(style\.css|app\.js)"/g, `$1="/$2?v=${VERSION}"`),
+  '/app.js': s => s.replace(/from '\.\/games\.js'/, `from './games.js?v=${VERSION}'`),
+  '/sw.js': s => s.replace(/__VERSION__/g, VERSION),
+};
+const memo = new Map();
+function loadFile(rel) {
+  if (memo.has(rel)) return memo.get(rel);
+  const file = path.normalize(path.join(PUBLIC, rel));
+  if (!file.startsWith(PUBLIC + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) return null;
+  let data = fs.readFileSync(file);
+  if (REWRITE[rel]) data = Buffer.from(REWRITE[rel](data.toString('utf8')));
+  const entry = { data, etag: `"${crypto.createHash('sha1').update(data).digest('base64url').slice(0, 16)}"`, ext: path.extname(file) };
+  memo.set(rel, entry); return entry;
+}
+function serveStatic(req, res, urlPath, query) {
+  let rel = decodeURIComponent(urlPath); if (rel === '/' || rel === '') rel = '/index.html';
+  const f = loadFile(rel) || loadFile('/index.html');
+  if (!f) return send(res, 404, 'Introuvable');
+  const isHtml = f.ext === '.html';
+  const cache = isHtml || rel === '/sw.js' || rel === '/manifest.webmanifest' ? 'no-cache'
+    : query.has('v') ? 'public, max-age=31536000, immutable' : (f.ext === '.png' || f.ext === '.svg' ? 'public, max-age=86400' : 'no-cache');
+  if (req.headers['if-none-match'] === f.etag) { res.writeHead(304, { ETag: f.etag, 'Cache-Control': cache }); return res.end(); }
+  send(res, 200, f.data, { 'Content-Type': MIME[f.ext] || 'application/octet-stream', 'Cache-Control': cache, ETag: f.etag });
 }
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   const p = url.pathname;
   try {
-    if (!p.startsWith('/api/')) return serveStatic(req, res, p);
+    if (!p.startsWith('/api/')) return serveStatic(req, res, p, url.searchParams);
     if (p === '/api/health') return send(res, 200, { ok: true });
 
     if (p === '/api/unlock' && req.method === 'POST') {
