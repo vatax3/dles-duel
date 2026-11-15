@@ -41,6 +41,13 @@ export const PRESETS = {
       else if ((m = s.match(/(\d[\d\s.,\u202f]{0,7})\s*(?:m|mètres?|meters?)\b/i))) v = Math.round(num(m[1]) / 10);
       else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,4})(?!\d)/i))) v = +m[1];
       return (v != null && v <= 1000) ? v : undefined; } },
+  // Magnitudle : on compte le mode principal « Size It Up » (5 comparaisons, 500 points max)
+  magnitudle: { name: 'Magnitudle', ic: '📏', url: 'https://magnitudle.com/size-it-up', sub: 'Size It Up /500', lower: false, min: 0, max: 500, canFail: false,
+    parse: t => { const s = seg(t, /magnitudle|size\s*it\s*up/i, 600); if (!s) return; let m, v;
+      if ((m = s.match(/(?:^|[^\d])(\d{1,3})\s*\/\s*500(?!\d)/))) v = +m[1];
+      else if ((m = s.match(/(\d{1,3})\s*(?:pts|points?)\b/i))) v = +m[1];
+      else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,3})(?!\d)/i))) v = +m[1];
+      return (v != null && v <= 500) ? v : undefined; } },
   connections: { name: 'Connections', ic: '🟪', url: 'https://www.nytimes.com/games/connections', sub: 'erreurs /4', lower: true, min: 0, max: 3, fail: 4, canFail: true,
     parse: t => { const s = seg(t, /connections/i, 800); if (!s) return; const rows = s.split('\n').map(l => [...l.matchAll(/🟨|🟩|🟦|🟪/gu)].map(x => x[0])).filter(r => r.length === 4);
       if (!rows.length) return; const solved = rows.filter(r => r.every(x => x === r[0])).length; return solved >= 4 ? rows.length - solved : 'X'; } },
@@ -68,7 +75,7 @@ export const PRESETS = {
     parse: t => { const s = seg(t, /timeguessr/i); if (!s) return; const m = s.match(/(\d[\d,.\s ]{0,7})\s*\/\s*50[,.\s ]?000/); return m ? num(m[1]) : undefined; } },
 };
 
-export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle'].map(id => ({ id, active: true }));
+export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle', 'magnitudle'].map(id => ({ id, active: true }));
 
 function customParser(g) {
   const kw = (g.keyword || g.name || '').trim(); if (!kw) return () => undefined;

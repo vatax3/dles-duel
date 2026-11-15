@@ -63,7 +63,7 @@ const getPlayer = id => (typeof id === 'string' && q.player.get(id)) || null;
 
 // ---------- Migrations de la liste de jeux (une seule fois chacune) ----------
 // Ajoute à la liste existante les jeux passés « par défaut » après coup.
-for (const id of ['perceptle', 'noillirk']) {
+for (const id of ['perceptle', 'noillirk', 'magnitudle']) {
   const key = `migr_add_${id}`;
   if (q.getCfg.get(key)) continue;
   const cfg = getGamesConfig();
