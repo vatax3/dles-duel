@@ -21,11 +21,14 @@ export const PRESETS = {
   poople: { name: 'Poople', ic: '💩', url: 'https://poople.io/', sub: 'étapes', lower: true, min: 1, max: 99, canFail: false,
     parse: t => { const s = seg(t, /poople/i); if (!s) return; const m = s.match(/(\d{1,2})\s*(?:steps?|moves?|étapes?|coups?|changes?)\b/i) || s.match(/\bin\s+(\d{1,2})\b/i) || s.match(/\b(\d{1,2})\s*\/\s*\d{1,2}\b/); return m ? +m[1] : undefined; } },
   krillion: { name: 'Krillion', ic: '🦐', url: 'https://krillion.io/', sub: 'points /700', lower: false, min: 0, max: 700, canFail: false,
-    parse: t => { const i = t.search(/krillion/i); if (i < 0) return; const s = t.slice(Math.max(0, i - 200), i + 500); let m, v;
-      if ((m = s.match(/(\d[\d\s., ]{0,6})\s*(?:pts|points?)\b/i))) v = num(m[1]);
-      else if ((m = s.match(/(\d[\d\s., ]{0,6})\s*\/\s*700/))) v = num(m[1]);
-      else if ((m = s.match(/(\d[\d\s., ]{0,7})\s*m\b/))) v = Math.round(num(m[1]) / 10);
-      return (v != null && v <= 700) ? v : undefined; } },
+    parse: t => { const i = t.search(/krillion/i); if (i < 0) return;
+      const read = s => { let m, v;
+        if ((m = s.match(/(\d[\d\s., ]{0,6})\s*(?:pts|points?)\b/i))) v = num(m[1]);
+        else if ((m = s.match(/(\d[\d\s., ]{0,6})\s*\/\s*700/))) v = num(m[1]);
+        else if ((m = s.match(/(\d[\d\s., ]{0,7})\s*m\b/))) v = Math.round(num(m[1]) / 10);
+        return (v != null && v <= 700) ? v : undefined; };
+      const after = read(t.slice(i, i + 500)); if (after !== undefined) return after;
+      const before = t.slice(Math.max(0, i - 120), i); const nl = before.lastIndexOf('\n\n'); return read(nl >= 0 ? before.slice(nl) : before); } },
   perceptle: { name: 'Perceptle', ic: '👁️', url: 'https://perceptle.com/', sub: 'score /100', lower: false, min: 0, max: 100, canFail: false,
     parse: t => { const s = seg(t, /perceptle/i, 600); if (!s) return; let m;
       if ((m = s.match(/(?:^|[^\d])(\d{1,3})\s*\/\s*100(?!\d)/))) return +m[1];
@@ -48,6 +51,12 @@ export const PRESETS = {
       else if ((m = s.match(/(\d{1,3})\s*(?:pts|points?)\b/i))) v = +m[1];
       else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,3})(?!\d)/i))) v = +m[1];
       return (v != null && v <= 500) ? v : undefined; } },
+  eraly: { name: 'Eraly', ic: '🕰️', url: 'https://eraly.io/', sub: 'points /700', lower: false, min: 0, max: 700, canFail: false,
+    parse: t => { const s = seg(t, /eraly/i, 600); if (!s) return; let m, v;
+      if ((m = s.match(/(\d[\d\s., ]{0,4})\s*\/\s*700(?!\d)/))) v = num(m[1]);
+      else if ((m = s.match(/(\d[\d\s., ]{0,4})\s*(?:pts|points?)\b/i))) v = num(m[1]);
+      else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,3})(?!\d)/i))) v = +m[1];
+      return (v != null && v <= 700) ? v : undefined; } },
   connections: { name: 'Connections', ic: '🟪', url: 'https://www.nytimes.com/games/connections', sub: 'erreurs /4', lower: true, min: 0, max: 3, fail: 4, canFail: true,
     parse: t => { const s = seg(t, /connections/i, 800); if (!s) return; const rows = s.split('\n').map(l => [...l.matchAll(/🟨|🟩|🟦|🟪/gu)].map(x => x[0])).filter(r => r.length === 4);
       if (!rows.length) return; const solved = rows.filter(r => r.every(x => x === r[0])).length; return solved >= 4 ? rows.length - solved : 'X'; } },
@@ -75,7 +84,7 @@ export const PRESETS = {
     parse: t => { const s = seg(t, /timeguessr/i); if (!s) return; const m = s.match(/(\d[\d,.\s ]{0,7})\s*\/\s*50[,.\s ]?000/); return m ? num(m[1]) : undefined; } },
 };
 
-export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle', 'magnitudle'].map(id => ({ id, active: true }));
+export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle', 'magnitudle', 'eraly'].map(id => ({ id, active: true }));
 
 function customParser(g) {
   const kw = (g.keyword || g.name || '').trim(); if (!kw) return () => undefined;
