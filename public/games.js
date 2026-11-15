@@ -36,14 +36,14 @@ export const PRESETS = {
       const rest = s.slice(9).replace(/#\s*\d+/g, ' ').replace(/\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/g, ' ');
       m = rest.match(/(?:^|[^\d])(\d{1,3})(?!\d)/); if (m && +m[1] <= 100) return +m[1];
       m = t.match(/(?:^|[^\d#])(\d{1,3})(?!\d)[^\d\n]{0,30}perceptle/i); return m && +m[1] <= 100 ? +m[1] : undefined; } },
-  // Noillirk = Krillion à l'envers : il faut donner la réponse la plus commune. Barème supposé identique (points, plus haut = mieux).
-  noillirk: { name: 'Noillirk', ic: '🎈', url: '', sub: 'points', lower: false, min: 0, max: 1000, canFail: false,
+  // Noillirk = Krillion à l'envers (réponse la plus commune). Version officielle : playdaily.org/noillirk (7 questions, altitude). Barème supposé identique à Krillion.
+  noillirk: { name: 'Noillirk', ic: '🎈', url: 'https://playdaily.org/noillirk', sub: 'points /700', lower: false, min: 0, max: 700, canFail: false,
     parse: t => { const s = seg(t, /noillirk/i, 500); if (!s) return; let m, v;
       if ((m = s.match(/(\d[\d\s.,\u202f]{0,6})\s*(?:pts|points?)\b/i))) v = num(m[1]);
       else if ((m = s.match(/(?:^|[^\d])(\d{1,4})\s*\/\s*\d{3,4}(?!\d)/))) v = +m[1];
       else if ((m = s.match(/(\d[\d\s.,\u202f]{0,7})\s*(?:m|mètres?|meters?)\b/i))) v = Math.round(num(m[1]) / 10);
       else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,4})(?!\d)/i))) v = +m[1];
-      return (v != null && v <= 1000) ? v : undefined; } },
+      return (v != null && v <= 700) ? v : undefined; } },
   // Magnitudle : on compte le mode principal « Size It Up » (5 comparaisons, 500 points max)
   magnitudle: { name: 'Magnitudle', ic: '📏', url: 'https://magnitudle.com/size-it-up', sub: 'Size It Up /500', lower: false, min: 0, max: 500, canFail: false,
     parse: t => { const s = seg(t, /magnitudle|size\s*it\s*up/i, 600); if (!s) return; let m, v;
