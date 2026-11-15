@@ -49,10 +49,10 @@
   <div id="banner" class="banner hidden"></div>
 
   <div class="tabs">
-    <button data-tab="today" class="on">Le jour</button>
-    <button data-tab="history">Historique</button>
-    <button data-tab="stats">Stats</button>
-    <button data-tab="settings">Réglages</button>
+    <button data-tab="today" class="on"><span class="ti">📅</span>Le jour</button>
+    <button data-tab="history"><span class="ti">📜</span>Historique</button>
+    <button data-tab="stats"><span class="ti">📊</span>Stats</button>
+    <button data-tab="settings"><span class="ti">⚙️</span>Réglages</button>
   </div>
 
   <!-- JOUR -->
@@ -68,16 +68,19 @@
         </div>
       </div>
       <div class="row" style="margin-top:12px;gap:6px" id="forChips"></div>
-      <textarea id="paste" style="margin-top:10px" placeholder="Colle tes textes de partage (tous d'un coup), ça se remplit tout seul"></textarea>
-      <div class="entry-grid" id="entry"></div>
-      <div class="row between" style="margin-top:12px">
-        <div class="status" id="status"></div>
-        <button class="primary" id="save">Enregistrer</button>
+      <div class="pastebox">
+        <textarea id="paste" placeholder="Colle tes textes de partage (tous d'un coup) : les scores se remplissent et s'enregistrent tout seuls"></textarea>
+        <button class="primary" id="pasteBtn" title="Coller le presse-papiers">📋 Coller</button>
       </div>
-      <div class="hint">Vide = pas joué. « Raté » = pas trouvé (pire score). Un jeu compte dès que deux joueurs l'ont joué.</div>
+      <div class="savebar"><span class="status" id="status"></span></div>
+      <div class="entry-grid" id="entry"></div>
+      <div class="hint">Les jeux pas encore joués sont en haut. Tout s'enregistre automatiquement. Vide = pas joué, « Raté » = pas trouvé. Points par jeu selon la place : 10, 7, 5, 3, 2, 1.</div>
     </div>
     <div class="card">
-      <h2 id="duelTitle">Le duel</h2>
+      <div class="row between" style="margin-bottom:12px">
+        <h2 id="duelTitle" style="margin:0">Le duel</h2>
+        <button class="sm" id="shareImg">📸 Partager</button>
+      </div>
       <div id="duel"></div>
     </div>
   </section>
@@ -103,7 +106,8 @@
       </div>
     </div>
     <div class="card"><h2>Classement</h2><div id="statsTop"></div></div>
-    <div class="card"><h2>Journées gagnées (cumul)</h2><div id="chart" class="chart"></div></div>
+    <div class="card"><h2>Points cumulés</h2><div id="chart" class="chart"></div></div>
+    <div class="card"><h2>Face-à-face</h2><div class="scroll" id="h2h"></div></div>
     <div class="card">
       <div class="row between" style="margin-bottom:10px">
         <h2 style="margin:0">Par jeu</h2>
@@ -111,6 +115,8 @@
       </div>
       <div class="scroll" id="statsGame"></div>
     </div>
+    <div class="card"><h2>Palmarès</h2><div id="palmares"></div></div>
+    <div class="card"><h2>Badges</h2><div id="badges"></div></div>
   </section>
 
   <!-- RÉGLAGES -->
@@ -132,7 +138,7 @@
         <button class="primary" id="addBtn">Ajouter</button>
       </div>
       <div class="status" id="pStatus" style="margin-top:6px"></div>
-      <div class="hint">Archiver un joueur le retire des listes sans effacer ses scores. On ne peut supprimer qu'un joueur sans score.</div>
+      <div class="hint">Clique sur l'emoji (ou ＋) pour en choisir un, et sur une pastille pour changer de couleur. Archiver un joueur le retire des listes sans effacer ses scores. On ne peut supprimer qu'un joueur sans score.</div>
     </div>
     <div class="card">
       <h2>Vos jeux</h2>
@@ -195,6 +201,7 @@
 </div>
 
 <div id="toast" class="toast hidden"></div>
+<canvas id="confetti" aria-hidden="true"></canvas>
 <script type="module" src="/app.js"></script>
 </body>
 </html>

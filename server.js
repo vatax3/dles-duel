@@ -36,6 +36,10 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS players (id TEXT PRIMARY KEY, name TEXT NOT NULL, slot INTEGER NOT NULL, archived INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL);
 `);
+// Migrations de colonnes (bases créées par une version précédente)
+for (const [col, type] of [['emoji', 'TEXT'], ['color', 'INTEGER']]) {
+  if (!db.prepare('PRAGMA table_info(players)').all().some(c => c.name === col)) db.exec(`ALTER TABLE players ADD COLUMN ${col} ${type}`);
+}
 const q = {
   allScores: db.prepare('SELECT date, player, data, updated_at FROM scores ORDER BY date'),
   dayScores: db.prepare('SELECT player, data FROM scores WHERE date = ?'),
@@ -47,8 +51,10 @@ const q = {
   recentPlayers: db.prepare('SELECT DISTINCT player FROM scores WHERE date >= ?'),
   getCfg: db.prepare('SELECT value FROM config WHERE key = ?'),
   setCfg: db.prepare('INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
-  players: db.prepare('SELECT id, name, slot, archived FROM players ORDER BY slot'),
-  player: db.prepare('SELECT id, name, slot, archived FROM players WHERE id = ?'),
+  players: db.prepare('SELECT id, name, slot, archived, emoji, color FROM players ORDER BY slot'),
+  player: db.prepare('SELECT id, name, slot, archived, emoji, color FROM players WHERE id = ?'),
+  setEmoji: db.prepare('UPDATE players SET emoji = ? WHERE id = ?'),
+  setColor: db.prepare('UPDATE players SET color = ? WHERE id = ?'),
   playerByName: db.prepare('SELECT id FROM players WHERE lower(name) = lower(?)'),
   maxSlot: db.prepare('SELECT COALESCE(MAX(slot), -1) AS m FROM players'),
   addPlayer: db.prepare('INSERT INTO players (id, name, slot, archived, created_at) VALUES (?, ?, ?, 0, ?)'),
@@ -58,7 +64,7 @@ const q = {
 };
 const getGamesConfig = () => { const r = q.getCfg.get('games'); return r ? JSON.parse(r.value) : null; };
 const resolvedGames = () => (getGamesConfig() || DEFAULT_GAMES).map(resolveGame).filter(Boolean);
-const listPlayers = () => q.players.all().map(p => ({ id: p.id, name: p.name, slot: p.slot, archived: !!p.archived }));
+const listPlayers = () => q.players.all().map(p => ({ id: p.id, name: p.name, slot: p.slot, archived: !!p.archived, emoji: p.emoji || '', color: p.color ?? null }));
 const getPlayer = id => (typeof id === 'string' && q.player.get(id)) || null;
 
 // ---------- Migrations de la liste de jeux (une seule fois chacune) ----------
@@ -166,7 +172,7 @@ async function sendNotify(date, player) {
   const ids = Object.keys(docs);
   const r = dayResult(games, ids, docs);
   if (r.compared) {
-    msg += '\n' + [...ids].sort((a, b) => r.wins[b] - r.wins[a]).map(id => `${nameOf(id)} ${r.wins[id]}`).join(' · ');
+    msg += '\n' + [...ids].sort((a, b) => r.points[b] - r.points[a]).map(id => `${nameOf(id)} ${r.points[id]} pts`).join(' · ');
     if (r.dayWinner && r.dayWinner !== 'tie') msg += ` — 🏆 ${nameOf(r.dayWinner)} en tête`;
   }
   // joueurs « habituels » (actifs ces 14 derniers jours) qui n'ont pas encore posté
@@ -174,14 +180,51 @@ async function sendNotify(date, player) {
   const missing = q.recentPlayers.all(since).map(x => x.player).filter(id => !docs[id] && players.some(p => p.id === id && !p.archived)).map(nameOf);
   if (missing.length) msg += `\nÀ toi de jouer : ${missing.join(', ')} !`;
   if (PUBLIC_URL) msg += `\n${PUBLIC_URL}`;
+  await postNotify(msg);
+}
+async function postNotify(msg, title = 'Duel des dles') {
   const isDiscord = /discord(app)?\.com\/api\/webhooks/.test(NOTIFY_URL);
   const isSlack = /hooks\.slack\.com/.test(NOTIFY_URL);
   const opts = isDiscord || isSlack
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(isDiscord ? { content: msg } : { text: msg }) }
-    : { method: 'POST', headers: { 'Title': 'Duel des dles', 'Tags': 'trophy', ...(PUBLIC_URL ? { 'Click': PUBLIC_URL } : {}) }, body: msg };
+    : { method: 'POST', headers: { 'Title': title, 'Tags': 'trophy', ...(PUBLIC_URL ? { 'Click': PUBLIC_URL } : {}) }, body: msg };
   const res = await fetch(NOTIFY_URL, opts);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 }
+
+// ---------- Récap hebdomadaire (lundi matin, via NOTIFY_URL) ----------
+const RECAP_HOUR = +(process.env.RECAP_HOUR ?? 9);
+const localParts = d => Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'short', hour: '2-digit', hourCycle: 'h23' }).formatToParts(d).map(x => [x.type, x.value]));
+async function weeklyRecap(force = false) {
+  if (!NOTIFY_URL) return;
+  const now = new Date(), lp = localParts(now);
+  if (!force && (lp.weekday !== 'Mon' || +lp.hour < RECAP_HOUR)) return;
+  const end = fmtLocal(new Date(now.getTime() - 864e5));            // dimanche
+  const start = fmtLocal(new Date(now.getTime() - 7 * 864e5));       // lundi précédent
+  const key = `recap_${start}`;
+  if (!force && q.getCfg.get(key)) return;
+  const games = resolvedGames(), players = listPlayers(), nameOf = id => players.find(p => p.id === id)?.name || id;
+  const byDate = {};
+  for (const r of q.allScores.all()) if (r.date >= start && r.date <= end) (byDate[r.date] ||= {})[r.player] = JSON.parse(r.data);
+  const pts = {}, wins = {}, days = {};
+  for (const docs of Object.values(byDate)) {
+    const ids = Object.keys(docs), r = dayResult(games, ids, docs);
+    if (!r.compared) continue;
+    for (const id of ids) { pts[id] = (pts[id] || 0) + r.points[id]; days[id] = (days[id] || 0) + 1; }
+    if (r.dayWinner && r.dayWinner !== 'tie') wins[r.dayWinner] = (wins[r.dayWinner] || 0) + 1;
+  }
+  q.setCfg.run(key, '1');
+  const order = Object.keys(pts).sort((a, b) => pts[b] - pts[a]);
+  if (!order.length) return;
+  const medals = ['🥇', '🥈', '🥉'];
+  let msg = `Récap de la semaine (${start.split('-').reverse().slice(0, 2).join('/')} → ${end.split('-').reverse().slice(0, 2).join('/')})\n`;
+  msg += order.map((id, i) => `${medals[i] || `${i + 1}.`} ${nameOf(id)} — ${pts[id]} pts, ${wins[id] || 0} journée${(wins[id] || 0) > 1 ? 's' : ''} gagnée${(wins[id] || 0) > 1 ? 's' : ''}, ${days[id]} j joués`).join('\n');
+  msg += `\n🏆 Champion de la semaine : ${nameOf(order[0])} !`;
+  if (PUBLIC_URL) msg += `\n${PUBLIC_URL}`;
+  await postNotify(msg, 'Récap de la semaine');
+}
+setInterval(() => weeklyRecap().catch(e => console.error('récap :', e.message)), 10 * 60 * 1000);
+setTimeout(() => weeklyRecap().catch(e => console.error('récap :', e.message)), 5000);
 
 // ---------- HTTP ----------
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
@@ -270,7 +313,9 @@ const server = http.createServer(async (req, res) => {
     if ((m = p.match(/^\/api\/players\/([\w-]+)$/))) {
       const pl = getPlayer(m[1]); if (!pl) return send(res, 404, { error: 'Joueur inconnu' });
       if (req.method === 'PATCH') {
-        const { name, archived } = await readJson(req, 1e4);
+        const { name, archived, emoji, color } = await readJson(req, 1e4);
+        if (emoji !== undefined) q.setEmoji.run([...String(emoji || '').trim()].slice(0, 4).join('') || null, pl.id);
+        if (color !== undefined) q.setColor.run(Number.isInteger(color) && color >= 0 && color < 8 ? color : null, pl.id);
         if (name !== undefined) {
           const n = cleanName(name); if (!n) return send(res, 400, { error: 'Nom vide' });
           const other = q.playerByName.get(n); if (other && other.id !== pl.id) return send(res, 409, { error: `« ${n} » existe déjà` });
@@ -316,6 +361,10 @@ const server = http.createServer(async (req, res) => {
       writeScore(date, pl.id, { ...(prev ? JSON.parse(prev.data) : {}), ...found });
       const names = Object.keys(found).map(id => `${games.find(g => g.id === id).name} ${found[id]}`);
       return send(res, 200, { ok: true, date, player: pl.id, found, message: `Enregistré pour ${pl.name} : ${names.join(', ')}` });
+    }
+    if (p === '/api/recap' && req.method === 'POST') {
+      if (!NOTIFY_URL) return send(res, 400, { error: 'NOTIFY_URL non configuré' });
+      await weeklyRecap(true); return send(res, 200, { ok: true });
     }
     if (p === '/api/export' && req.method === 'GET') {
       const scores = q.allScores.all().map(r => ({ date: r.date, uid: r.player, ...JSON.parse(r.data), updatedAt: r.updated_at }));

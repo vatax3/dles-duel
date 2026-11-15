@@ -9,7 +9,11 @@ Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidie
 - **Raccourci iPhone** via un jeton personnel (`/api/text`).
 - **Temps réel** : la page se met à jour quand l'autre poste.
 - **Notifications** ntfy, Discord ou Slack quand quelqu'un poste ses scores.
-- Stats (7 j / 30 j / tout), cumul des victoires, records, séries, historique, export CSV/JSON.
+- **Points au classement** sur chaque jeu (10, 7, 5, 3, 2, 1 selon la place), podium du jour, confettis pour le vainqueur, image du résultat à partager.
+- **Saisie express** : bouton « Coller », enregistrement automatique, jeux pas encore joués en haut avec un bouton « Jouer ».
+- Stats (7 j / 30 j / tout) : classement aux points, points cumulés, face-à-face, stats par jeu, palmarès hebdo et mensuel, badges.
+- **Récap hebdo** chaque lundi matin sur la notification (heure réglable avec `RECAP_HOUR`).
+- Historique, export CSV/JSON, emoji et couleur par joueur.
 - **Zéro dépendance** : Node ≥ 22.13 (SQLite intégré à Node), une seule image, un seul volume.
 
 ## Démarrage
@@ -36,6 +40,7 @@ L'app répond sur `http://<ton-serveur>:3000`. Les données sont dans `./data` (
 | `PUBLIC_URL` | URL publique, ajoutée aux notifications. |
 | `NOTIFY_URL` | ntfy (`https://ntfy.sh/mon-topic`), webhook Discord ou Slack. Vide = pas de notification. |
 | `NOTIFY_DELAY_SECONDS` | Délai avant envoi, pour regrouper les corrections (90 s par défaut). |
+| `RECAP_HOUR` | Heure d'envoi du récap hebdo le lundi (9 par défaut). |
 | `COOKIE_SECURE` | `true` si servi en HTTPS sans en-tête `X-Forwarded-Proto`. |
 | `SECRET` | Facultatif : secret de signature (sinon généré dans `data/secret`). |
 | `PLAYERS` | Ancienne config `id:Nom,…` : crée ces joueurs au démarrage si la base n'en a aucun. |

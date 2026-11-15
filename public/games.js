@@ -190,23 +190,44 @@ export function gameWinners(g, entries) {
   return w.length === ranked.length ? 'tie' : w;
 }
 
-/** Résultat d'une journée. docs = {playerId: {gameId: valeur}} */
+/** Points par place sur chaque jeu, façon Mario Kart (au-delà de la 6ᵉ place : 1 point). */
+export const RANK_POINTS = [10, 7, 5, 3, 2, 1];
+export const pointsForRank = r => RANK_POINTS[r - 1] ?? 1;
+
+/** Classement d'un jeu : { joueur: place } (ex aequo = même place, puis on saute : 1, 1, 3). null si moins de 2 joueurs. */
+export function gameRanks(g, entries) {
+  const ranked = entries.map(e => ({ ...e, r: rankVal(g, e.v) })).filter(e => e.r != null).sort((a, b) => a.r - b.r);
+  if (ranked.length < 2) return null;
+  const out = {};
+  ranked.forEach((e, i) => { out[e.p] = i > 0 && e.r === ranked[i - 1].r ? out[ranked[i - 1].p] : i + 1; });
+  return out;
+}
+
+/** Résultat d'une journée. docs = {playerId: {gameId: valeur}}
+ *  points : somme des points de place sur chaque jeu comparé ; wins : nombre de 1ʳᵉˢ places ;
+ *  perGame[g] : gagnant(s) | 'tie' | null ; ranks[g] : { joueur: place }. */
 export function dayResult(games, playerIds, docs) {
   const wins = Object.fromEntries(playerIds.map(p => [p, 0]));
-  const perGame = {};
+  const points = Object.fromEntries(playerIds.map(p => [p, 0]));
+  const perGame = {}, ranks = {};
   let compared = 0;
   for (const g of games) {
-    const w = gameWinners(g, playerIds.map(p => ({ p, v: docs[p]?.[g.id] })));
+    const entries = playerIds.map(p => ({ p, v: docs[p]?.[g.id] }));
+    const w = gameWinners(g, entries);
     perGame[g.id] = w;
-    if (w) compared++;
+    const rk = gameRanks(g, entries);
+    ranks[g.id] = rk;
+    if (!w || !rk) continue;
+    compared++;
     if (Array.isArray(w)) w.forEach(p => wins[p]++);
+    for (const [p, r] of Object.entries(rk)) points[p] += pointsForRank(r);
   }
   const present = playerIds.filter(p => docs[p]);
   let dayWinner = null;
   if (compared) {
-    const max = Math.max(...present.map(p => wins[p]));
-    const lead = present.filter(p => wins[p] === max);
+    const max = Math.max(...present.map(p => points[p]));
+    const lead = present.filter(p => points[p] === max);
     dayWinner = lead.length === 1 ? lead[0] : 'tie';
   }
-  return { docs, wins, perGame, compared, dayWinner, complete: present.length === playerIds.length };
+  return { docs, wins, points, perGame, ranks, compared, dayWinner, complete: present.length === playerIds.length };
 }

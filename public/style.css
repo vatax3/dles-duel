@@ -129,3 +129,57 @@
 
   .erow .gname{min-width:0;overflow-wrap:anywhere}
   .erow .gname small.timer{color:var(--muted)}
+
+  /* --- v3 : saisie rapide --- */
+  .pastebox{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px;align-items:stretch}
+  .pastebox textarea{min-height:64px}
+  .pastebox button{white-space:nowrap}
+  .savebar{min-height:20px;margin-top:6px}
+  .status.ok{color:var(--accent)}
+  .erow.done{opacity:.62}
+  .erow.done:focus-within{opacity:1}
+  .erow .play{font-size:12px;padding:2px 8px;margin-left:6px;text-decoration:none;border:1px solid var(--line);border-radius:99px;color:var(--text);white-space:nowrap}
+  .erow .play:hover{border-color:var(--accent)}
+  .donehead{grid-column:1/-1;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-top:6px}
+  /* --- podium --- */
+  .podium{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;align-items:end;margin:4px 0 12px}
+  .podium .step{background:var(--panel2);border-radius:10px 10px 4px 4px;text-align:center;padding:10px 6px 8px}
+  .podium .step .emo{font-size:26px;line-height:1.1}
+  .podium .step .nm{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .podium .step .pts{font-family:var(--mono);font-size:22px;font-weight:700}
+  .podium .step .pl{font-family:var(--mono);color:var(--muted);font-size:12px}
+  .podium .s1{min-height:150px;outline:1px solid var(--gold)}
+  .podium .s2{min-height:120px}
+  .podium .s3{min-height:100px}
+  .podium .empty{background:none}
+  td small.rk{display:block;font-size:10px;color:var(--muted);font-family:var(--mono)}
+  td.win small.rk{color:#0b0d10}
+  /* --- stats --- */
+  .h2h td.lead{color:var(--accent);font-weight:700}
+  .h2h td.self{color:var(--line)}
+  .palm{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+  .palm h3{font-size:13px;margin:0 0 6px;color:var(--muted);font-weight:500}
+  .palm .line{display:flex;justify-content:space-between;gap:8px;font-size:14px;padding:4px 0;border-bottom:1px solid var(--line)}
+  .palm .line .when{color:var(--muted)}
+  .badges .bp{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}
+  .badges .bp .who{min-width:110px;font-weight:700;font-size:14px}
+  .badges .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .badge{display:inline-flex;align-items:center;gap:4px;background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:2px 9px;font-size:12px}
+  .badge b{font-family:var(--mono)}
+  /* --- joueurs : emoji et couleur --- */
+  .emo-btn{background:none;border:1px dashed var(--line);border-radius:8px;font-size:18px;padding:0 4px;min-width:34px;cursor:pointer}
+  .swatches{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+  .swatches button{width:20px;height:20px;border-radius:50%;padding:0;border:2px solid transparent}
+  .swatches button.on{border-color:var(--text)}
+  .tabs .ti{margin-right:6px}
+  #confetti{position:fixed;inset:0;pointer-events:none;z-index:20;width:100%;height:100%}
+  /* --- mobile : onglets en bas --- */
+  @media (max-width:640px){
+    body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
+    .tabs{position:fixed;left:0;right:0;bottom:0;margin:0;border-radius:0;border-width:1px 0 0;z-index:15;padding:6px 6px calc(6px + env(safe-area-inset-bottom));background:var(--panel)}
+    .tabs button{display:flex;flex-direction:column;align-items:center;font-size:11px;padding:4px 2px}
+    .tabs .ti{margin:0 0 2px;font-size:20px}
+    .toast{bottom:calc(84px + env(safe-area-inset-bottom))}
+    .podium .s1{min-height:130px}
+    .pastebox{grid-template-columns:1fr}
+  }
