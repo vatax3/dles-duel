@@ -33,6 +33,14 @@ export const PRESETS = {
       const rest = s.slice(9).replace(/#\s*\d+/g, ' ').replace(/\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/g, ' ');
       m = rest.match(/(?:^|[^\d])(\d{1,3})(?!\d)/); if (m && +m[1] <= 100) return +m[1];
       m = t.match(/(?:^|[^\d#])(\d{1,3})(?!\d)[^\d\n]{0,30}perceptle/i); return m && +m[1] <= 100 ? +m[1] : undefined; } },
+  // Noillirk = Krillion à l'envers : il faut donner la réponse la plus commune. Barème supposé identique (points, plus haut = mieux).
+  noillirk: { name: 'Noillirk', ic: '🎈', url: '', sub: 'points', lower: false, min: 0, max: 1000, canFail: false,
+    parse: t => { const s = seg(t, /noillirk/i, 500); if (!s) return; let m, v;
+      if ((m = s.match(/(\d[\d\s.,\u202f]{0,6})\s*(?:pts|points?)\b/i))) v = num(m[1]);
+      else if ((m = s.match(/(?:^|[^\d])(\d{1,4})\s*\/\s*\d{3,4}(?!\d)/))) v = +m[1];
+      else if ((m = s.match(/(\d[\d\s.,\u202f]{0,7})\s*(?:m|mètres?|meters?)\b/i))) v = Math.round(num(m[1]) / 10);
+      else if ((m = s.match(/(?:score|total)\s*[:=]?\s*(\d{1,4})(?!\d)/i))) v = +m[1];
+      return (v != null && v <= 1000) ? v : undefined; } },
   connections: { name: 'Connections', ic: '🟪', url: 'https://www.nytimes.com/games/connections', sub: 'erreurs /4', lower: true, min: 0, max: 3, fail: 4, canFail: true,
     parse: t => { const s = seg(t, /connections/i, 800); if (!s) return; const rows = s.split('\n').map(l => [...l.matchAll(/🟨|🟩|🟦|🟪/gu)].map(x => x[0])).filter(r => r.length === 4);
       if (!rows.length) return; const solved = rows.filter(r => r.every(x => x === r[0])).length; return solved >= 4 ? rows.length - solved : 'X'; } },
@@ -60,7 +68,7 @@ export const PRESETS = {
     parse: t => { const s = seg(t, /timeguessr/i); if (!s) return; const m = s.match(/(\d[\d,.\s ]{0,7})\s*\/\s*50[,.\s ]?000/); return m ? num(m[1]) : undefined; } },
 };
 
-export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'perceptle'].map(id => ({ id, active: true }));
+export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle'].map(id => ({ id, active: true }));
 
 function customParser(g) {
   const kw = (g.keyword || g.name || '').trim(); if (!kw) return () => undefined;
