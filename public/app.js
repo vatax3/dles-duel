@@ -176,9 +176,13 @@ function buildForm() {
     n.addEventListener('input', () => { dirty = true; n.classList.remove('auto'); if (n.value) f.checked = false; });
     f.addEventListener('change', () => { dirty = true; if (f.checked) n.value = ''; n.disabled = f.checked; });
     inputs[g.id] = { num: n, fail: f };
+    const desc = g.desc ? el('div', { class: 'gdesc hidden' }, g.desc) : null;
     box.append(el('div', { class: 'erow' },
-      el('div', { class: 'gname' }, `${g.ic} `, g.url ? el('a', { href: g.url, target: '_blank', rel: 'noopener' }, g.name) : g.name, el('small', {}, g.sub)),
-      el('div', { class: 'cell' }, n, g.canFail ? el('label', { title: 'Raté' }, f, el('span', {}, 'Raté')) : null)));
+      el('div', { class: 'gname' }, `${g.ic} `, g.url ? el('a', { href: g.url, target: '_blank', rel: 'noopener' }, g.name) : g.name,
+        g.desc ? el('button', { class: 'info', type: 'button', title: 'Description', 'aria-label': `Description de ${g.name}`, onclick: () => desc.classList.toggle('hidden') }, 'ⓘ') : null,
+        el('small', {}, g.sub), g.timer ? el('small', { class: 'timer' }, `⏱ ${g.timer}`) : null),
+      el('div', { class: 'cell' }, n, g.canFail ? el('label', { title: 'Raté' }, f, el('span', {}, 'Raté')) : null),
+      desc));
   }
   if (!activeGames().length) box.append(el('div', { class: 'empty' }, 'Aucun jeu actif — va dans Réglages.'));
   if (drafts[forId]) { setInputs(drafts[forId]); dirty = true; } else { setInputs(docOf(selDate, forId)); dirty = false; }
@@ -297,7 +301,7 @@ function renderDuel() {
   t.append(el('tr', {}, el('th', {}, 'Jeu'), ...r.ids.map(p => el('th', {}, nameOf(p)))));
   for (const g of GAMES.filter(g => g.active || r.ids.some(p => r.docs[p]?.[g.id] != null))) {
     const w = r.perGame[g.id];
-    t.append(el('tr', {}, el('td', {}, `${g.ic} ${g.name}`), ...r.ids.map(p => {
+    t.append(el('tr', {}, el('td', { title: [g.desc, g.timer && `⏱ ${g.timer}`].filter(Boolean).join('\n') || null }, `${g.ic} ${g.name}`), ...r.ids.map(p => {
       const v = r.docs[p]?.[g.id];
       return el('td', { class: ['v', isWin(w, p) ? 'win' : '', v === 'X' ? 'x' : ''].join(' ') }, fmtV(v));
     })));
@@ -491,7 +495,7 @@ function renderGamesTab() {
     const g = resolveGame(stored); if (!g) return;
     list.append(el('div', { class: 'gitem' + (g.active ? '' : ' off') },
       el('div', { class: 'ic' }, g.ic),
-      el('div', {}, el('b', {}, g.name), el('small', {}, `${g.sub}${g.custom ? ' · perso' : ''}${g.active ? '' : ' · en pause'}`)),
+      el('div', {}, el('b', {}, g.name), el('small', {}, `${g.sub}${g.timer ? ` · ⏱ ${g.timer}` : ''}${g.custom ? ' · perso' : ''}${g.active ? '' : ' · en pause'}`), g.desc ? el('small', { class: 'gdesc2' }, g.desc) : null),
       el('div', { class: 'acts' },
         el('button', { class: 'sm', title: 'Monter', 'aria-label': 'Monter', disabled: i === 0, onclick: () => moveGame(i, -1) }, '↑'),
         el('button', { class: 'sm', title: 'Descendre', 'aria-label': 'Descendre', disabled: i === cfg.length - 1, onclick: () => moveGame(i, 1) }, '↓'),
@@ -503,7 +507,9 @@ function renderGamesTab() {
   const rest = Object.entries(PRESETS).filter(([id]) => !have.has(id));
   if (!rest.length) cat.append(el('div', { class: 'empty' }, 'Tout le catalogue est déjà dans ta liste.'));
   for (const [id, p] of rest) cat.append(el('div', { class: 'cat' },
-    el('div', { class: 'row', style: 'gap:8px' }, el('span', { style: 'font-size:20px' }, p.ic), el('div', { class: 't' }, p.name, el('small', {}, p.sub))),
+    el('div', { class: 'row', style: 'gap:8px;flex-wrap:nowrap;align-items:flex-start' }, el('span', { style: 'font-size:20px' }, p.ic),
+      el('div', { class: 't' }, p.url ? el('a', { href: p.url, target: '_blank', rel: 'noopener', style: 'color:inherit' }, p.name) : p.name,
+        el('small', {}, `${p.sub}${p.timer ? ` · ⏱ ${p.timer}` : ''}`), p.desc ? el('small', { class: 'gdesc2' }, p.desc) : null)),
     el('button', { class: 'sm', 'aria-label': `Ajouter ${p.name}`, onclick: () => addPreset(id) }, '+')));
 }
 let cfgQueue = Promise.resolve();
@@ -525,9 +531,9 @@ $('#cAdd').addEventListener('click', () => {
   const c = cfgCopy();
   c.push({ id: 'c_' + Date.now().toString(36), custom: true, active: true, name: name.slice(0, 30), ic: $('#cIc').value.trim().slice(0, 4) || '🎲', url,
     keyword: $('#cKw').value.trim() || name, kind: $('#cKind').value, max: Math.max(1, Math.round(+$('#cMax').value || 10)),
-    lower: $('#cLower').checked, canFail: $('#cFail').checked });
+    lower: $('#cLower').checked, canFail: $('#cFail').checked, desc: $('#cDesc').value.trim().slice(0, 300), timer: $('#cTimer').value.trim().slice(0, 40) });
   saveConfig(c);
-  ['#cName', '#cIc', '#cUrl', '#cKw'].forEach(s => $(s).value = '');
+  ['#cName', '#cIc', '#cUrl', '#cKw', '#cDesc', '#cTimer'].forEach(s => $(s).value = '');
   setStatus(`${name} ajouté ✓`, false, '#cStatus');
 });
 

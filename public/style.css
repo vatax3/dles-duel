@@ -119,3 +119,13 @@
   .rank .r .pts{font-family:var(--mono);font-size:20px;font-weight:700}
   .rank .r.first{outline:1px solid var(--gold)}
   .rank .r .sub{font-size:12px;color:var(--muted)}
+
+  .erow .gdesc{grid-column:1/-1;font-size:13px;color:var(--muted);line-height:1.4;border-top:1px solid var(--line);padding-top:6px}
+  button.info{background:none;border:none;color:var(--muted);padding:0 4px;font-size:14px;line-height:1;cursor:pointer}
+  button.info:hover{color:var(--text)}
+  .timer{white-space:nowrap}
+  small.gdesc2{display:block;color:var(--muted);font-size:12px;line-height:1.35;margin-top:3px;font-weight:400}
+  .cat{align-items:flex-start}
+
+  .erow .gname{min-width:0;overflow-wrap:anywhere}
+  .erow .gname small.timer{color:var(--muted)}

@@ -84,6 +84,36 @@ export const PRESETS = {
     parse: t => { const s = seg(t, /timeguessr/i); if (!s) return; const m = s.match(/(\d[\d,.\s ]{0,7})\s*\/\s*50[,.\s ]?000/); return m ? num(m[1]) : undefined; } },
 };
 
+// Description courte et limite de temps de chaque jeu du catalogue (affichées dans l'app)
+const DETAILS = {
+  wordle: ['Trouver le mot de 5 lettres en 6 essais.', 'Sans chrono'],
+  globle: ['Trouver le pays mystère : chaque essai colore les pays selon leur distance (plus chaud = plus près). Essais illimités, le moins possible.', 'Sans chrono'],
+  angle: ['Deviner un angle en degrés avec des indications plus / moins, en 4 essais.', 'Sans chrono'],
+  minecraftle: ['Retrouver la recette de craft Minecraft du jour en 10 essais, façon Wordle.', 'Sans chrono'],
+  poople: ['Échelle de mots en anglais : partir d\'un mot de 4 lettres et atteindre POOP en changeant une lettre à la fois, chaque étape étant un vrai mot. Le moins d\'étapes possible.', 'Sans chrono'],
+  krillion: ['7 questions ouvertes (« Cite un oiseau ») : plus ta réponse valide est rare, plus elle rapporte (10 à 100 pts par question).', '25 s / question'],
+  noillirk: ['L\'inverse de Krillion : donner la réponse que la plupart des gens donneraient. 7 questions, version officielle sur playdaily.org.', '15 s / question'],
+  perceptle: ['5 épreuves de perception (compter, trajectoire, angle, rythme, proportion), chacune sur 100 ; le score est la moyenne. Pas de compte à rebours, mais certaines épreuves demandent des réflexes. Le vendredi, les règles changent.', 'Sans chrono'],
+  magnitudle: ['Mode Size It Up : redimensionner des silhouettes à la taille réelle d\'objets, par rapport à une référence. 5 comparaisons, 500 pts max.', 'Sans chrono'],
+  eraly: ['Deviner l\'année de 7 moments historiques : année exacte = 100 pts, puis 85, 60, 30 ou 10 selon l\'écart.', '25 s / question'],
+  connections: ['Regrouper 16 mots en 4 groupes de 4 au thème caché. 4 erreurs maximum.', 'Sans chrono'],
+  strands: ['Trouver les mots d\'un thème caché dans une grille de lettres, dont le « spangram » qui la traverse. On compte les indices utilisés.', 'Sans chrono'],
+  worldle: ['Reconnaître un pays à sa silhouette en 6 essais, avec distance et direction à chaque essai.', 'Sans chrono'],
+  tradle: ['Deviner un pays d\'après la répartition de ses exportations, en 6 essais.', 'Sans chrono'],
+  flagle: ['Deviner un drapeau qui se dévoile morceau par morceau, en 6 essais.', 'Sans chrono'],
+  travle: ['Relier deux pays par la plus courte chaîne de pays voisins ; on compte les essais en trop.', 'Sans chrono'],
+  framed: ['Deviner un film à partir d\'images, une nouvelle image à chaque essai, 6 essais.', 'Sans chrono'],
+  bandle: ['Deviner une chanson : un instrument de plus à chaque essai, 6 essais.', 'Sans chrono'],
+  costcodle: ['Deviner le prix d\'un article Costco en 6 essais (plus / moins).', 'Sans chrono'],
+  nerdle: ['Wordle des maths : trouver une équation de 8 caractères en 6 essais.', 'Sans chrono'],
+  contexto: ['Trouver le mot secret : chaque essai est classé selon sa proximité de sens. Essais illimités, le moins possible.', 'Sans chrono'],
+  waffle: ['Remettre en place les lettres d\'une grille en forme de gaufre en 15 échanges max ; les échanges restants donnent des étoiles.', 'Sans chrono'],
+  quordle: ['4 Wordle en même temps, en 9 essais ; le score est le total des essais.', 'Sans chrono'],
+  octordle: ['8 Wordle en même temps, en 13 essais ; le score est le total.', 'Sans chrono'],
+  timeguessr: ['5 photos : deviner où et en quelle année elles ont été prises (50 000 pts max).', 'Chrono selon le mode'],
+};
+for (const [id, [desc, timer]] of Object.entries(DETAILS)) if (PRESETS[id]) Object.assign(PRESETS[id], { desc, timer });
+
 export const DEFAULT_GAMES = ['wordle', 'globle', 'angle', 'minecraftle', 'poople', 'krillion', 'noillirk', 'perceptle', 'magnitudle', 'eraly'].map(id => ({ id, active: true }));
 
 function customParser(g) {
@@ -105,7 +135,8 @@ export function resolveGame(stored) {
   const g = { id: stored.id, custom: true, name: String(stored.name || 'Jeu').slice(0, 30), ic: String(stored.ic || '🎲').slice(0, 4), url: stored.url || '',
     keyword: stored.keyword, kind: stored.kind === 'fraction' ? 'fraction' : 'number',
     sub: stored.kind === 'fraction' ? `essais /${max}` : (lower ? 'score (bas = mieux)' : 'points'),
-    lower, min: lower ? (stored.kind === 'fraction' ? 1 : 0) : 0, max, canFail: !!stored.canFail && lower, fail: max + 1, active: stored.active !== false };
+    lower, min: lower ? (stored.kind === 'fraction' ? 1 : 0) : 0, max, canFail: !!stored.canFail && lower, fail: max + 1, active: stored.active !== false,
+    desc: String(stored.desc || '').slice(0, 300), timer: String(stored.timer || '').slice(0, 40) };
   g.parse = customParser(g);
   return g;
 }
@@ -123,7 +154,8 @@ export function sanitizeConfig(list) {
     if (url && !/^https?:\/\//i.test(url)) url = '';
     out.push({ id: x.id, custom: true, active: x.active !== false, name: String(x.name || 'Jeu').slice(0, 30), ic: String(x.ic || '🎲').slice(0, 4), url,
       keyword: String(x.keyword || x.name || '').slice(0, 40), kind: x.kind === 'fraction' ? 'fraction' : 'number',
-      max: Math.max(1, Math.min(1e6, Math.round(+x.max || 10))), lower: x.lower !== false, canFail: !!x.canFail });
+      max: Math.max(1, Math.min(1e6, Math.round(+x.max || 10))), lower: x.lower !== false, canFail: !!x.canFail,
+      desc: String(x.desc || '').slice(0, 300), timer: String(x.timer || '').slice(0, 40) });
   }
   return out;
 }
