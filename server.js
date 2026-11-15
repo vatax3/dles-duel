@@ -61,6 +61,16 @@ const resolvedGames = () => (getGamesConfig() || DEFAULT_GAMES).map(resolveGame)
 const listPlayers = () => q.players.all().map(p => ({ id: p.id, name: p.name, slot: p.slot, archived: !!p.archived }));
 const getPlayer = id => (typeof id === 'string' && q.player.get(id)) || null;
 
+// ---------- Migrations de la liste de jeux (une seule fois chacune) ----------
+// Ajoute à la liste existante les jeux passés « par défaut » après coup.
+for (const id of ['perceptle']) {
+  const key = `migr_add_${id}`;
+  if (q.getCfg.get(key)) continue;
+  const cfg = getGamesConfig();
+  if (cfg && !cfg.some(g => g.id === id)) q.setCfg.run('games', JSON.stringify([...cfg, { id, active: true }]));
+  q.setCfg.run(key, '1');
+}
+
 // ---------- Joueurs ----------
 const cleanName = s => String(s || '').replace(/\s+/g, ' ').trim().slice(0, 24);
 function slugify(name) {

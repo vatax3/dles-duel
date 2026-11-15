@@ -1,6 +1,6 @@
 # Duel des dles
 
-Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidiens (Wordle, Globle, Angle, Minecraftle, Poople, Krillion… et 15 autres du catalogue) entre potes, sans limite de joueurs.
+Petite app auto-hébergée pour comparer chaque jour vos scores de jeux quotidiens (Wordle, Globle, Angle, Minecraftle, Poople, Krillion, Perceptle… et 15 autres du catalogue) entre potes, sans limite de joueurs.
 
 - **Joueurs gérés dans l'app** : chacun s'ajoute au premier passage (« Qui es-tu ? »), pas de mot de passe. Renommer, archiver, supprimer dans *Réglages*.
 - **Code d'accès commun facultatif** (`ACCESS_CODE`), demandé une fois par appareil.
